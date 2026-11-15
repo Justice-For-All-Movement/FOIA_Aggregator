@@ -117,6 +117,31 @@ class JournalIntegrationTests(unittest.TestCase):
         self.assertEqual(receipt['source_counts']['completed'], 1)
         self.assertEqual(receipt['source_counts']['not_attempted'], 2)
 
+    def test_cycle_time_budget_defers_and_next_cycle_resumes_remaining_sources(self):
+        # FA-010 time budget + FA-004 journal: stopping early must not claim
+        # the deferred sources were crawled, and must resume them next cycle.
+        self.cfg.data['crawler']['maximum_cycle_seconds'] = 60
+        calls = []
+        def crawl(source_id, *args, **kwargs):
+            calls.append(source_id)
+            self.succeeded(source_id)
+        with patch('foia_archive.engine.time.monotonic', side_effect=[0, 1, 61]):
+            self.run_cycle(crawl)
+        first = latest_receipt(self.db)
+        self.assertEqual(first['state'], 'INTERRUPTED')
+        self.assertEqual(first['stop_reason'], 'cycle_time_budget_exhausted')
+        self.assertEqual(first['source_counts']['completed'], 1)
+        self.assertEqual(first['source_counts']['not_attempted'], 2)
+        done = list(calls)
+        calls.clear()
+        with patch('foia_archive.engine.time.monotonic', return_value=0):
+            self.run_cycle(crawl)
+        second = latest_receipt(self.db)
+        self.assertEqual(second['id'], first['id'])
+        self.assertEqual(second['state'], 'COMPLETED')
+        self.assertEqual(sorted(done + calls), sorted(self.ids))
+        self.assertTrue(set(done).isdisjoint(calls))
+
     def test_policy_change_does_not_reuse_interrupted_plan(self):
         fingerprint = policy_fingerprint(self.cfg)
         with exclusive_writer(self.db):
