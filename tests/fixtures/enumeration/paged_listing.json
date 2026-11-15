@@ -1,0 +1,10 @@
+{
+  "_comment": "Synthetic recorded-shape fixture for FC-02 tests; not real records. Page 3 repeats one item from page 2 to exercise de-duplication.",
+  "source_url": "https://foia.example.gov/reading-room/",
+  "total_hint": 7,
+  "pages": {
+    "1": {"items": ["https://foia.example.gov/docs/a.pdf", "https://foia.example.gov/docs/b.pdf", "https://foia.example.gov/docs/c.pdf"], "next": 2},
+    "2": {"items": ["https://foia.example.gov/docs/d.pdf", "https://foia.example.gov/docs/e.pdf"], "next": 3},
+    "3": {"items": ["https://foia.example.gov/docs/e.pdf", "https://foia.example.gov/docs/f.pdf", "https://foia.example.gov/docs/g.pdf"], "next": null}
+  }
+}

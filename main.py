@@ -220,6 +220,38 @@ def reindex_text(
     )
 
 
+@app.command("source-inventory")
+def source_inventory(
+    config: str = "config/settings.yaml",
+    census_json: str | None = typer.Option(
+        None, "--census-json",
+        help="source-census.json produced by scripts/source_census.py.",
+    ),
+    output: str = typer.Option("source-inventory.json", "--output"),
+):
+    """FC-01: write the universal source inventory (read-only; no network)."""
+    import json
+    from pathlib import Path
+    import sqlite3
+    from foia_archive.source_inventory import build_source_inventory
+
+    cfg = load_config(config)
+    census = json.loads(Path(census_json).read_text()) if census_json else None
+    db_path = Path(cfg.storage.get("db_path"))
+    conn = None
+    if db_path.is_file():
+        # Read-only: the inventory never competes with the single writer.
+        conn = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+    try:
+        inventory = build_source_inventory(census, conn=conn)
+    finally:
+        if conn is not None:
+            conn.close()
+    Path(output).write_text(json.dumps(inventory, indent=2, sort_keys=True))
+    typer.echo(json.dumps(inventory["summary"], indent=2, sort_keys=True))
+
+
 @app.command()
 def daemon(config: str = "config/settings.yaml"):
     """Run continuous crawler."""
