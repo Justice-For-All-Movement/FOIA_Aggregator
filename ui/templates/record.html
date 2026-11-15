@@ -131,6 +131,25 @@
       {% endif %}
     </section>
 
+    {% if related %}
+    <section class="panel">
+      <h2>Related public versions</h2>
+      <p class="results-meta">Each version is a separate public record; none has been merged or replaced.</p>
+      <ul class="provenance-list">
+        {% for item in related %}
+        <li>
+          <a class="provenance-title" href="/record/{{ item.document_id }}">{{ item.title or item.url }}</a>
+          <span class="provenance-meta">
+            {% if item.relation == 'identical_bytes' %}Identical file{% elif item.relation == 'url_variant' %}Same address, different form{% elif item.relation == 'redaction_variant' %}Different redactions{% elif item.relation == 'third_party_copy' %}Third-party copy{% else %}Similar text{% endif %}
+            {% if item.relation in ('text_near_duplicate', 'redaction_variant') and item.score %} · {{ '%.0f' % (item.score * 100) }}% text overlap{% endif %}
+            {% if not item.archived %} · remote only{% endif %}
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
     <section class="panel">
       <h2>Why this matters</h2>
       <p class="results-meta">

@@ -377,6 +377,26 @@ def import_sfl_inbox(
     typer.echo(f"{len(staged)} staged bundle(s) processed")
 
 
+@app.command("analyze-identity")
+def analyze_identity_command(config: str = "config/settings.yaml"):
+    """FC-08: record dedupe/version relations (writer lock; never merges records)."""
+    import json
+    from foia_archive.identity import analyze_identity, relation_summary
+    from foia_archive.ingestion_journal import exclusive_writer
+    from foia_archive.storage import get_connection, init_db
+
+    cfg = load_config(config)
+    db_path = cfg.storage.get("db_path")
+    with exclusive_writer(db_path):
+        init_db(db_path, cfg.storage.get("files_dir"))
+        conn = get_connection(db_path)
+        try:
+            analyze_identity(conn)
+            typer.echo(json.dumps(relation_summary(conn), indent=2, sort_keys=True))
+        finally:
+            conn.close()
+
+
 @app.command()
 def daemon(config: str = "config/settings.yaml"):
     """Run continuous crawler."""

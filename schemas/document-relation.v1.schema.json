@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/schemas/document-relation.v1.schema.json",
+  "title": "FOIA Aggregator document relation (foia-document-relations-export/1)",
+  "description": "FC-08 evidence that two FC-13 records are related. Records are never merged: identical_bytes/url_variant mean the same object found twice; text_near_duplicate/redaction_variant mean related but separate public versions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["relation_id", "record_ids", "relation", "score", "evidence"],
+  "properties": {
+    "relation_id": {"type": "string", "pattern": "^rel_[0-9a-f]{24}$"},
+    "record_ids": {"type": "array", "items": {"type": "string", "pattern": "^rec_[0-9a-f]{24}$"}},
+    "relation": {"type": "string", "enum": ["url_variant", "identical_bytes", "text_near_duplicate", "redaction_variant", "third_party_copy"]},
+    "score": {"type": ["number", "null"]},
+    "evidence": {"type": "object"}
+  }
+}
