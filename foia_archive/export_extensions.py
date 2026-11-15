@@ -25,6 +25,7 @@ from .export_contract import ExportCursorError, decode_cursor, encode_cursor, re
 from .producer import producer_info
 
 TEXT_VERSION = "foia-document-text-export/1"
+RELATIONS_VERSION = "foia-document-relations-export/1"
 LOG_ROW_VERSION = "foia-request-log-export/1"
 COVERAGE_CONTRACT = "foia-aggregator-export"
 COVERAGE_VERSION = "foia-log-coverage/1"
@@ -35,6 +36,7 @@ SCHEMAS = {
     "request-log-row.v1": "request-log-row.v1.schema.json",
     "log-coverage-record.v1": "log-coverage-record.v1.schema.json",
     "log-coverage-manifest.v1": "log-coverage-manifest.v1.schema.json",
+    "document-relation.v1": "document-relation.v1.schema.json",
 }
 TEXT_MAX_PAGE = 100
 TEXT_PAGE_BYTE_BUDGET = 8 * 1024 * 1024
@@ -279,11 +281,50 @@ def write_log_coverage(conn, output_dir: Path, **kwargs) -> Dict[str, Any]:
     return json.loads(manifest)
 
 
+# -- FC-08 document relations --------------------------------------------------------
+
+RELATIONS_MAX_PAGE = 1000
+
+
+def relations_snapshot_id(conn: sqlite3.Connection) -> str:
+    if not _has_table(conn, "document_relations"):
+        return _fingerprint("rsnap_", [RELATIONS_VERSION, 0])
+    row = conn.execute("SELECT COUNT(*), COALESCE(MAX(rowid),0), COALESCE(MAX(detected_at),'') "
+                       "FROM document_relations").fetchone()
+    return _fingerprint("rsnap_", [RELATIONS_VERSION, *tuple(row)])
+
+
+def export_relations_page(conn: sqlite3.Connection, *, cursor: Optional[str] = None,
+                          limit: int = 500) -> Dict[str, Any]:
+    """Relations between FC-13 records (by stable record_id); records are never merged."""
+    if type(limit) is not int or not 1 <= limit <= RELATIONS_MAX_PAGE:
+        raise ValueError(f"limit must be 1..{RELATIONS_MAX_PAGE}")
+    snapshot_id = relations_snapshot_id(conn)
+    after = decode_cursor(cursor, snapshot_id) if cursor else 0
+    if not _has_table(conn, "document_relations"):
+        return {"schema_version": RELATIONS_VERSION, "snapshot_id": snapshot_id, "records": [], "next_cursor": None}
+    rows = conn.execute(
+        """SELECT r.rowid AS rid, r.relation, r.score, r.evidence_json, a.url AS url_a, b.url AS url_b
+           FROM document_relations r JOIN documents a ON a.id=r.doc_a JOIN documents b ON b.id=r.doc_b
+           WHERE r.rowid > ? ORDER BY r.rowid LIMIT ?""", (after, limit + 1)).fetchall()
+    records = []
+    for row in rows[:limit]:
+        pair = sorted([record_id_for(row["url_a"]), record_id_for(row["url_b"])])
+        records.append({"relation_id": "rel_" + hashlib.sha256(
+                            f"{pair[0]}\x00{pair[1]}\x00{row['relation']}".encode()).hexdigest()[:24],
+                        "record_ids": pair, "relation": row["relation"], "score": row["score"],
+                        "evidence": json.loads(row["evidence_json"])})
+    more = len(rows) > limit
+    return {"schema_version": RELATIONS_VERSION, "snapshot_id": snapshot_id, "records": records,
+            "next_cursor": encode_cursor(rows[limit - 1]["rid"], snapshot_id) if more else None}
+
+
 # -- generic snapshot writer for paged datasets ------------------------------------
 
 DATASETS: Dict[str, Tuple[str, Callable[..., Dict[str, Any]], int, str]] = {
     "document-text": (TEXT_VERSION, export_text_page, TEXT_MAX_PAGE, "record_id"),
     "request-log-rows": (LOG_ROW_VERSION, export_log_rows_page, LOG_ROW_MAX_PAGE, "row_id"),
+    "document-relations": (RELATIONS_VERSION, export_relations_page, RELATIONS_MAX_PAGE, "relation_id"),
 }
 
 

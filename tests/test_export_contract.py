@@ -25,7 +25,7 @@ def validate(instance, schema, path="$"):
     if types is not None:
         allowed = types if isinstance(types, list) else [types]
         mapping = {"object": dict, "array": list, "string": str, "integer": int,
-                   "boolean": bool, "null": type(None)}
+                   "boolean": bool, "null": type(None), "number": (int, float)}
         ok = any(isinstance(instance, mapping[t]) and not (t == "integer" and isinstance(instance, bool))
                  for t in allowed)
         if not ok:

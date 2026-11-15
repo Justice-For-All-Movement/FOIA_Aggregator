@@ -29,11 +29,13 @@ from foia_archive.archive_status import database_present, resolve_web_database
 from foia_archive.database_backup import list_database_backups
 from foia_archive.export_extensions import (
     export_log_rows_page,
+    export_relations_page,
     export_text_page,
     load_extension_schema,
     log_coverage_files,
 )
 from foia_archive import sfl_interchange
+from foia_archive.identity import related_versions
 from foia_archive.export_contract import (
     ExportCursorError,
     export_manifest,
@@ -308,6 +310,13 @@ def _adopt_restored_database() -> None:
         DB_PATH, ARCHIVE_STATUS = path, status
 
 
+def _has_relations(conn: sqlite3.Connection) -> bool:
+    # Read path must not create tables on an older restored snapshot.
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='document_relations'"
+    ).fetchone() is not None
+
+
 def get_db() -> sqlite3.Connection:
     _adopt_restored_database()
     return get_connection(DB_PATH)
@@ -501,6 +510,11 @@ async def export_request_log_rows(request: Request, cursor: Optional[str] = None
     return _export_rate_limited(request) or _paged_export(export_log_rows_page, cursor, limit)
 
 
+@app.get("/api/v1/export/document-relations")
+async def export_document_relations(request: Request, cursor: Optional[str] = None, limit: int = 500):
+    return _export_rate_limited(request) or _paged_export(export_relations_page, cursor, limit)
+
+
 def _log_coverage_files():
     conn = get_db()
     try:
@@ -629,6 +643,7 @@ async def record_detail(request: Request, document_id: int):
         if document is None:
             raise HTTPException(status_code=404, detail="Document not found")
         sources = get_document_source_details(conn, document_id)
+        related = related_versions(conn, document_id) if _has_relations(conn) else []
     finally:
         conn.close()
 
@@ -639,6 +654,7 @@ async def record_detail(request: Request, document_id: int):
             request,
             document=document,
             sources=sources,
+            related=related,
         ),
     )
 

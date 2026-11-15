@@ -204,6 +204,11 @@ def _migration_11_sfl_interchange(conn: sqlite3.Connection) -> None:
     create_tables(conn)
 
 
+def _migration_12_document_relations(conn: sqlite3.Connection) -> None:
+    from .identity import create_tables
+    create_tables(conn)
+
+
 MIGRATIONS: Tuple[
     Tuple[int, str, Callable[[sqlite3.Connection], None]],
     ...,
@@ -219,6 +224,7 @@ MIGRATIONS: Tuple[
     (9, "request log normalization", _migration_9_request_logs),
     (10, "third-party release provenance", _migration_10_third_party_releases),
     (11, "send-foia-log-requests interchange", _migration_11_sfl_interchange),
+    (12, "cross-source identity relations", _migration_12_document_relations),
 )
 
 
