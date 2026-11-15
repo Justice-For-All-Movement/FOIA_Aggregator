@@ -29,6 +29,10 @@ RUN groupadd --gid 10001 foia \
     && chown -R foia:foia /data
 
 COPY . .
+# Exports name their producer commit; pass --build-arg FOIA_BUILD_COMMIT=<sha>
+# (Render also provides RENDER_GIT_COMMIT at runtime).
+ARG FOIA_BUILD_COMMIT=""
+ENV FOIA_BUILD_COMMIT=${FOIA_BUILD_COMMIT}
 RUN chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 8000

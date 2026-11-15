@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .producer import producer_info
 from .source_inventory import normalize_url, source_id_for
 
 SCHEMA_VERSION = "foia-catalog-export/1"
@@ -168,7 +169,12 @@ def export_page(
     }
 
 
-def export_manifest(conn: sqlite3.Connection, *, now: Optional[datetime] = None) -> Dict[str, Any]:
+# Additive manifest revisions keep schema_version "foia-catalog-export/1":
+# 1.1 adds "producer" (name, repository, commit, commit_source).
+CONTRACT_REVISION = "1.1"
+
+
+def export_manifest(conn: sqlite3.Connection, *, now: Optional[datetime] = None, env=None) -> Dict[str, Any]:
     counts = conn.execute(
         """SELECT COUNT(*) AS records,
                   COALESCE(SUM(download_status='downloaded'),0) AS archived,
@@ -182,6 +188,8 @@ def export_manifest(conn: sqlite3.Connection, *, now: Optional[datetime] = None)
     sources = conn.execute("SELECT COUNT(*) FROM reading_rooms").fetchone()[0]
     return {
         "schema_version": SCHEMA_VERSION,
+        "contract_revision": CONTRACT_REVISION,
+        "producer": producer_info(env) if env is not None else producer_info(),
         "schema": "/api/v1/export/schema",
         "snapshot_id": snapshot_fingerprint(conn),
         "generated_at": (now or datetime.now(timezone.utc)).isoformat(),
@@ -206,11 +214,11 @@ def load_schema() -> Dict[str, Any]:
 
 
 def write_snapshot(conn: sqlite3.Connection, output_dir: Path, *, page_size: int = MAX_PAGE_SIZE,
-                   now: Optional[datetime] = None) -> Dict[str, Any]:
+                   now: Optional[datetime] = None, env=None) -> Dict[str, Any]:
     """Write records-NNNNN.jsonl files plus a manifest with per-file SHA-256."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    manifest = export_manifest(conn, now=now)
+    manifest = export_manifest(conn, now=now, env=env)
     files: List[Dict[str, Any]] = []
     cursor, total = None, 0
     while True:

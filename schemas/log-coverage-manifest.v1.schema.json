@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/schemas/log-coverage-manifest.v1.schema.json",
+  "title": "Request-log coverage manifest (foia-log-coverage/1)",
+  "description": "Field set identical to sfl-log-coverage-proposal-1 so consumers validating exact field sets accept it. producer.commit is the 40-hex producer commit, or null when the build is unpinned (consumers must then refuse it as live evidence). fc14_review stays 'absent' until an FC-14 review is accepted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "contract_version", "dataset", "snapshot_id", "producer", "observed_at", "fixture_mode", "fc14_review", "records"],
+  "properties": {
+    "contract": {"type": "string", "enum": ["foia-aggregator-export"]},
+    "contract_version": {"type": "string", "enum": ["foia-log-coverage/1"]},
+    "dataset": {"type": "string", "enum": ["log_coverage"]},
+    "snapshot_id": {"type": "string"},
+    "producer": {"type": "object", "additionalProperties": false, "required": ["name", "commit"],
+                 "properties": {"name": {"type": "string"}, "commit": {"type": ["string", "null"]}}},
+    "observed_at": {"type": "string", "pattern": "Z$"},
+    "fixture_mode": {"type": "boolean"},
+    "fc14_review": {"type": "object", "additionalProperties": false, "required": ["status", "reference"],
+                    "properties": {"status": {"type": "string", "enum": ["absent", "in_review", "accepted"]},
+                                   "reference": {"type": ["string", "null"]}}},
+    "records": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "count"],
+                "properties": {"path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                               "count": {"type": "integer"}}}
+  }
+}

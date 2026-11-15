@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/schemas/log-coverage-record.v1.schema.json",
+  "title": "Request-log coverage record (foia-log-coverage/1)",
+  "description": "Coverage of one ingested log for one agency/component and calendar year. Field set identical to Send_FOIA_Log_Requests sfl-log-coverage-proposal-1. availability=full requires a finished year, all required fields mapped and no >31-day gap without a received request.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["coverage_id", "jurisdiction", "agency_abbr", "component_abbr", "record_class", "period_start",
+               "period_end", "availability", "artifact_sha256", "source_url", "retrieved_at", "missing_fields",
+               "date_gaps", "synthetic"],
+  "properties": {
+    "coverage_id": {"type": "string"},
+    "jurisdiction": {"type": "string"},
+    "agency_abbr": {"type": "string"},
+    "component_abbr": {"type": "string"},
+    "record_class": {"type": "string", "enum": ["foia_request_log", "annual_report", "log_link_only"]},
+    "period_start": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+    "period_end": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+    "availability": {"type": "string", "enum": ["full", "partial", "unknown"]},
+    "artifact_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "source_url": {"type": "string"},
+    "retrieved_at": {"type": ["string", "null"]},
+    "missing_fields": {"type": "array", "items": {"type": "string"}},
+    "date_gaps": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+    "synthetic": {"type": "boolean"}
+  }
+}

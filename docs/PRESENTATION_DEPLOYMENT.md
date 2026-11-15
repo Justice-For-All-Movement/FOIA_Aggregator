@@ -258,3 +258,7 @@ by `CMD` `python -m uvicorn ui.server:app --host 0.0.0.0 --port ${PORT:-8000}`
 | `FOIA_PUBLIC_BASE_URL` | optional | Canonical origin for share metadata, robots and sitemap. |
 | `FOIA_AUTONOMOUS_REFRESH_ENABLED` | set (`false`) | Informational on the web service; the web process never crawls or publishes checkpoints. |
 | `FOIA_REQUIRE_ARCHIVE` | optional | `true` = fail startup when no snapshot is available. |
+| `FOIA_INGEST_TOKEN` | optional | Bearer token (>= 24 chars) enabling the Send_FOIA_Log_Requests bundle receiver; endpoint returns 404 while unset. |
+| `FOIA_INGEST_INBOX`, `FOIA_INGEST_INBOX_DURABLE` | optional | Staging directory for received bundles (default `<db dir>/sfl-inbox`) and whether it is persistent (Render free disk is not). |
+| `FOIA_EXPORT_RATE_PER_MINUTE` | optional | Export API per-client limit (default 120). |
+| `FOIA_BUILD_COMMIT` / `RENDER_GIT_COMMIT` | automatic | Producer commit named in export manifests (Render sets `RENDER_GIT_COMMIT`; Docker builds may pass `--build-arg FOIA_BUILD_COMMIT`). |

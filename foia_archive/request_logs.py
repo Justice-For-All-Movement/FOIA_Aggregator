@@ -177,7 +177,10 @@ def _read_tabular(raw: bytes, file_format: str) -> List[Tuple[str, int, List[Any
             from openpyxl import load_workbook
         except ImportError as exc:  # pragma: no cover - dependency is in requirements
             raise RequestLogError("XLSX support requires openpyxl") from exc
-        workbook = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+        try:
+            workbook = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+        except Exception as exc:  # corrupt/encrypted/not-a-workbook zip
+            raise RequestLogError(f"Unreadable XLSX request log: {type(exc).__name__}") from None
         try:
             sheet = workbook.worksheets[0]
             for number, cells in enumerate(sheet.iter_rows(values_only=True), start=1):
