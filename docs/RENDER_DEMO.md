@@ -81,7 +81,9 @@ Also confirm:
 ## Scheduled ingestion and single-writer policy
 
 The twice-weekly GitHub Actions **Autonomous corpus refresh** workflow runs a
-single conservatively bounded wave. It is serialized with manual expansion
+single conservatively bounded wave **only** when the repository variable
+`FOIA_AUTONOMOUS_REFRESH_ENABLED` is `true` (it is off by default and must stay
+off until live B2 checkpoint/recovery acceptance passes). It is serialized with manual expansion
 and presentation seeding through the shared `foia-b2-single-writer` concurrency
 group. This prevents two GitHub Actions crawlers from starting from the same
 B2 SQLite snapshot and overwriting each other's metadata. The Render Free

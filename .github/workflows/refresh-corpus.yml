@@ -11,6 +11,10 @@ concurrency:
 
 jobs:
   refresh:
+    # Deliberately OFF until live B2 checkpoint/recovery acceptance passes.
+    # Set the repository variable FOIA_AUTONOMOUS_REFRESH_ENABLED=true to
+    # activate scheduled runs. Manual dispatch remains an explicit operator act.
+    if: github.event_name == 'workflow_dispatch' || vars.FOIA_AUTONOMOUS_REFRESH_ENABLED == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 180
     env:
