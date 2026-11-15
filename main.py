@@ -252,6 +252,34 @@ def source_inventory(
     typer.echo(json.dumps(inventory["summary"], indent=2, sort_keys=True))
 
 
+@app.command("ingest-request-log")
+def ingest_request_log(
+    path: str = typer.Argument(..., help="Local copy of an official request log (CSV/TSV/XLSX)."),
+    source_url: str = typer.Option(..., "--source-url", help="Official URL the log was obtained from."),
+    agency: str | None = typer.Option(None, "--agency"),
+    config: str = "config/settings.yaml",
+):
+    """FC-03: normalize a request log into request records (no network)."""
+    from pathlib import Path
+    from foia_archive.ingestion_journal import exclusive_writer
+    from foia_archive.request_logs import normalize_request_log, store_request_log
+    from foia_archive.storage import get_connection, init_db
+
+    cfg = load_config(config)
+    db_path = cfg.storage.get("db_path")
+    log = normalize_request_log(Path(path).read_bytes(), source_url=source_url,
+                                filename=path, agency=agency)
+    with exclusive_writer(db_path):
+        init_db(db_path, cfg.storage.get("files_dir"))
+        conn = get_connection(db_path)
+        try:
+            stored = store_request_log(conn, log)
+        finally:
+            conn.close()
+    typer.echo(f"{'Stored' if stored else 'Already stored'} {log.log_id}: "
+               f"{len(log.rows)} rows, {len(log.failures)} queued failures")
+
+
 @app.command()
 def daemon(config: str = "config/settings.yaml"):
     """Run continuous crawler."""
