@@ -9,7 +9,7 @@
   ],
   "schemaVersion": 1,
   "roadmapVersion": 2,
-  "observedAt": "2026-11-15T18:52:15.000Z",
+  "observedAt": "2026-11-15T19:42:45.000Z",
   "units": [
     {
       "id": "FA-001",
@@ -221,14 +221,16 @@
         71
       ],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-03",
-      "contributingPrs": [],
+      "contributingPrs": [
+        75
+      ],
       "dependsOn": [
         "FC-01",
         "FC-02"
       ],
       "externalDependencies": [],
       "externalPrerequisites": [],
-      "mappingEvidence": "CSV/TSV/XLSX log normalization with row provenance, confidence and failed-row queue merged via #71 (fixtures). PDF/scanned logs and real official logs pending."
+      "mappingEvidence": "CSV/TSV/XLSX log normalization with row provenance, confidence and failed-row queue merged via #71 (fixtures). PDF/scanned logs and real official logs pending. #75 exports rows and per agency/year coverage and routes SFL fulfilled logs into FC-03."
     },
     {
       "id": "FC-04",
@@ -254,14 +256,17 @@
       "origin": "addition",
       "prs": [],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-05",
-      "contributingPrs": [],
+      "contributingPrs": [
+        78
+      ],
       "dependsOn": [
         "FC-02",
         "FC-03",
         "FC-04"
       ],
       "externalDependencies": [],
-      "externalPrerequisites": []
+      "externalPrerequisites": [],
+      "mappingEvidence": "Date-window backfill plans, oldest-first missed-period queue, verified window spans, per-source release windows (#78, fixtures). Depends on FC-04; live backfill pending."
     },
     {
       "id": "FC-06",
@@ -269,12 +274,15 @@
       "origin": "addition",
       "prs": [],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-06",
-      "contributingPrs": [],
+      "contributingPrs": [
+        78
+      ],
       "dependsOn": [
         "FC-02"
       ],
       "externalDependencies": [],
-      "externalPrerequisites": []
+      "externalPrerequisites": [],
+      "mappingEvidence": "Site-type detection, challenge/403 -> BLOCKED, sitemap-tree and JSON listing adapters (#78, fixtures). Audited live field sample pending."
     },
     {
       "id": "FC-07",
@@ -282,7 +290,9 @@
       "origin": "addition",
       "prs": [],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-07",
-      "contributingPrs": [],
+      "contributingPrs": [
+        78
+      ],
       "dependsOn": [
         "FA-006",
         "FC-04",
@@ -290,7 +300,8 @@
         "FC-06"
       ],
       "externalDependencies": [],
-      "externalPrerequisites": []
+      "externalPrerequisites": [],
+      "mappingEvidence": "Signature sniffing, bounded ZIP expansion (bomb/traversal/symlink/encryption rejection), per-format outcome coverage (#78). Downloader wiring and A/V transcript metadata pending."
     },
     {
       "id": "FC-08",
@@ -298,7 +309,9 @@
       "origin": "addition",
       "prs": [],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-08",
-      "contributingPrs": [],
+      "contributingPrs": [
+        76
+      ],
       "dependsOn": [
         "FC-03",
         "FC-04",
@@ -307,7 +320,8 @@
         "FC-07"
       ],
       "externalDependencies": [],
-      "externalPrerequisites": []
+      "externalPrerequisites": [],
+      "mappingEvidence": "Relations (url_variant, identical_bytes, text near-duplicate, redaction variant, third-party copy) without merging, identity groups, related versions on record pages, relations export (#76, fixtures). Agency-reorganization and request-tracking-ID joins pending."
     },
     {
       "id": "FC-09",
@@ -315,7 +329,9 @@
       "origin": "addition",
       "prs": [],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-09",
-      "contributingPrs": [],
+      "contributingPrs": [
+        79
+      ],
       "dependsOn": [
         "FA-002",
         "FC-01",
@@ -328,7 +344,8 @@
         "FC-08"
       ],
       "externalDependencies": [],
-      "externalPrerequisites": []
+      "externalPrerequisites": [],
+      "mappingEvidence": "Metadata-only growth mode, prioritized acquisition queue with budget-safe planning (#79, fixtures). Crawler wiring pending single-writer acceptance."
     },
     {
       "id": "FC-10",
@@ -336,14 +353,17 @@
       "origin": "addition",
       "prs": [],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-10",
-      "contributingPrs": [],
+      "contributingPrs": [
+        79
+      ],
       "dependsOn": [
         "FA-003",
         "FA-004",
         "FC-09"
       ],
       "externalDependencies": [],
-      "externalPrerequisites": []
+      "externalPrerequisites": [],
+      "mappingEvidence": "Leased idempotent work queue with per-host ceilings, fairness, crash recovery, backoff; bounded benchmark (#79). Not wired; horizontal scale requires FC-11."
     },
     {
       "id": "FC-11",
@@ -351,7 +371,9 @@
       "origin": "addition",
       "prs": [],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-11",
-      "contributingPrs": [],
+      "contributingPrs": [
+        79
+      ],
       "dependsOn": [
         "FA-010",
         "FC-09",
@@ -360,7 +382,8 @@
       "externalDependencies": [],
       "externalPrerequisites": [
         "Explicit owner spending/credentials authorization for paid storage"
-      ]
+      ],
+      "mappingEvidence": "Caller-priced cost estimate, owner-authorization gate, shadow parity check and staged plan (#79). Blocked on explicit spending authorization."
     },
     {
       "id": "FC-12",
@@ -368,7 +391,9 @@
       "origin": "addition",
       "prs": [],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-12",
-      "contributingPrs": [],
+      "contributingPrs": [
+        77
+      ],
       "dependsOn": [
         "FC-01",
         "FC-02",
@@ -383,7 +408,8 @@
         "FC-11"
       ],
       "externalDependencies": [],
-      "externalPrerequisites": []
+      "externalPrerequisites": [],
+      "mappingEvidence": "Distinct completeness denominators with explicit unknowns on /coverage and /api/v1/coverage (#77, fixtures). Depends on FC-01..FC-11 evidence being real."
     },
     {
       "id": "FC-13",
@@ -392,7 +418,9 @@
       "prs": [],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-13",
       "contributingPrs": [
-        72
+        72,
+        75,
+        76
       ],
       "dependsOn": [
         "FC-03",
@@ -401,7 +429,7 @@
       ],
       "externalDependencies": [],
       "externalPrerequisites": [],
-      "mappingEvidence": "Versioned export contract (JSON Schema, stable IDs), snapshot-bound paginated API with rate limit and replayable manifests merged via #72 as partial evidence; completion depends on FC-08 dedupe provenance and FC-12 completeness denominators."
+      "mappingEvidence": "Catalog contract/API/snapshots (#72) plus additive document-text, request-log-row, log-coverage and document-relations exports, producer-commit manifests and the authenticated SFL-12 bundle receiver (#75, #76). Completion depends on FC-08 and FC-12 acceptance."
     },
     {
       "id": "FC-14",
@@ -409,7 +437,9 @@
       "origin": "addition",
       "prs": [],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-14",
-      "contributingPrs": [],
+      "contributingPrs": [
+        77
+      ],
       "dependsOn": [
         "FC-01",
         "FC-02",
@@ -428,10 +458,101 @@
       "externalDependencies": [],
       "externalPrerequisites": [
         "Owner/Engine Room review of broad-corpus evidence before unblocking dependent projects"
-      ]
+      ],
+      "mappingEvidence": "Draft fc14-corpus-review/1 generator with evidence-only gates (#77). Review is always draft; acceptance is an owner decision on a real corpus."
     }
   ],
   "pullRequests": [
+    {
+      "id": 5326428581,
+      "number": 79,
+      "title": "FC-09/FC-10/FC-11: acquisition queue, work queue, contingent migration gate",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/79",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T19:40:43.000Z",
+      "updatedAt": "2026-11-15T19:42:38.000Z",
+      "closedAt": "2026-11-15T19:42:38.000Z",
+      "mergedAt": "2026-11-15T19:42:38.000Z",
+      "headSha": "5f79d68191ca0a0a76291b62f64ee8cc4bc70562",
+      "baseRef": "main",
+      "mergeCommitSha": "45f66213cecd68e083b545f5183e00c3e70d7ad4"
+    },
+    {
+      "id": 5326404312,
+      "number": 78,
+      "title": "FC-05/FC-06/FC-07: backfill windows, adapters, content-type safety",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/78",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T19:37:58.000Z",
+      "updatedAt": "2026-11-15T19:40:18.000Z",
+      "closedAt": "2026-11-15T19:40:18.000Z",
+      "mergedAt": "2026-11-15T19:40:18.000Z",
+      "headSha": "90bfe520e9c4ecb915d34d6e12fff25e63e1ad49",
+      "baseRef": "main",
+      "mergeCommitSha": "78e37e0bb8cfd948e808d4cfc7bf415dd3b9ed5e"
+    },
+    {
+      "id": 5326382901,
+      "number": 77,
+      "title": "FC-12/FC-14: completeness denominators and draft corpus review",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/77",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T19:35:27.000Z",
+      "updatedAt": "2026-11-15T19:37:34.000Z",
+      "closedAt": "2026-11-15T19:37:34.000Z",
+      "mergedAt": "2026-11-15T19:37:34.000Z",
+      "headSha": "abd816c563b397985d4b18a0d05d3566e2291c33",
+      "baseRef": "main",
+      "mergeCommitSha": "f73ff27f52dbdc7b5214e1762722bcfffb91907a"
+    },
+    {
+      "id": 5326363633,
+      "number": 76,
+      "title": "FC-08: cross-source identity relations without merging records",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/76",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T19:33:14.000Z",
+      "updatedAt": "2026-11-15T19:35:03.000Z",
+      "closedAt": "2026-11-15T19:35:03.000Z",
+      "mergedAt": "2026-11-15T19:35:03.000Z",
+      "headSha": "5a3a37b5b9dbd0f501bf87a2890ec3600da72757",
+      "baseRef": "main",
+      "mergeCommitSha": "ed0133ddbcd9b131800b0646b45fdc3ce8f96945"
+    },
+    {
+      "id": 5326336821,
+      "number": 75,
+      "title": "Export extensions (text, log rows, log coverage), producer commit, SFL bundle receiver",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/75",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T19:30:11.000Z",
+      "updatedAt": "2026-11-15T19:32:52.000Z",
+      "closedAt": "2026-11-15T19:32:51.000Z",
+      "mergedAt": "2026-11-15T19:32:51.000Z",
+      "headSha": "48853a007b96e4544f493674c47886693cb5b810",
+      "baseRef": "main",
+      "mergeCommitSha": "b89b63e6f70a964a626096c6d83e7f886b279d26"
+    },
+    {
+      "id": 5326000374,
+      "number": 74,
+      "title": "Registry: map FA PRs and add FC-01..FC-14 additions; refresh handoff",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/74",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T18:53:23.000Z",
+      "updatedAt": "2026-11-15T18:54:43.000Z",
+      "closedAt": "2026-11-15T18:54:43.000Z",
+      "mergedAt": "2026-11-15T18:54:43.000Z",
+      "headSha": "3d87fdf861fa64a82b8dc4af0822503fffeecef1",
+      "baseRef": "main",
+      "mergeCommitSha": "6ee00d1fc20403bc20e316f22ad5a049397e78fb"
+    },
     {
       "id": 5325976106,
       "number": 73,
