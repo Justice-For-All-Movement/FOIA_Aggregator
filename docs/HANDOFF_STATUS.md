@@ -39,6 +39,22 @@ does not prove object-content hashes; no live B2/data synchronization, productio
 acceptance, migration, paid resource or schedule activation is claimed here.
 
 ## Baseline findings
+
+### FA-002 source follow-up — October 17, 2026
+
+The mapped FA-002 follow-up resumes pending PR #48's native fallback and adds
+read-back/full-hash/SQLite verification before any retention pruning. It also
+adds trusted B2 endpoint checks, redirect denial, authorization fail-closed
+behavior, bounded network/gzip reads, fresh keys, atomic restore replacement and
+safe pagination. See [CHECKPOINT_SAFETY.md](CHECKPOINT_SAFETY.md) for exact scope,
+test requirements, processing limits and provider references. PR #48's old code
+must not overwrite these guards when reconciling branches. PR #51 audit changes
+remain independent and must be retained when resolving handoff-document conflicts.
+
+No live B2 acceptance, recovery promotion, schedule activation, deployed replica
+update or unit completion is established. Actual full-suite test/build results
+belong to the mapped PR's current committed head. Existing PR #47 and PR #41
+remain subject to their audit, upload, single-writer and live acceptance gates.
 - Code already has source discovery, curated and IC coverage, PAL/generic reading-room crawler, safe downloader, OCR/legacy Office text extraction, SQLite FTS5, B2 storage/recovery, FastAPI public search/admin, and manual/scheduled GitHub workflows. **Functionality/production success were not retested in this documentation change.**
 - The approved .exechub/project.yml remains a **10-unit** operating expansion. Additional FC-01..14 scope is explicitly subsequent user-requested expansion; track its count separately with audited PR mappings.
 - Repository source files include .github/workflows/{expand-corpus,refresh-corpus,preserve-recovery-artifact,audit-recovered-database}.yml. Autonomous scheduled refresh is intentionally gated by repository variable FOIA_AUTONOMOUS_REFRESH_ENABLED. Do not interpret the presence of a schedule as proof runs execute.
