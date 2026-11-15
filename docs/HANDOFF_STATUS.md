@@ -63,9 +63,9 @@ remain subject to their audit, upload, single-writer and live acceptance gates.
 - The paid future ~1 TB tier requires explicit user approval; meanwhile metadata/source catalog coverage should expand without mislabeling remote-only records as archived.
 
 ## Open PR collision check (2026-10-10)
-1. [#48 — B2 native upload fallback for repeated S3 TLS failures](https://github.com/neophilism/FOIA_Aggregator/pull/48), OPEN when checked. Review security and tests first.
-2. [#47 — promote recovered database to a new verified B2 checkpoint](https://github.com/neophilism/FOIA_Aggregator/pull/47), OPEN when checked; confirm preservation/monotonic audit evidence and dependency on upload fix.
-3. [#41 — serialized scheduled crawling outside ephemeral Render](https://github.com/neophilism/FOIA_Aggregator/pull/41), OPEN when checked; review stale branch/conflict after others land. Never activate until reliable recovery/checkpoint is proven.
+1. [#48 — B2 native upload fallback for repeated S3 TLS failures](https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/48), OPEN when checked. Review security and tests first.
+2. [#47 — promote recovered database to a new verified B2 checkpoint](https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/47), OPEN when checked; confirm preservation/monotonic audit evidence and dependency on upload fix.
+3. [#41 — serialized scheduled crawling outside ephemeral Render](https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/41), OPEN when checked; review stale branch/conflict after others land. Never activate until reliable recovery/checkpoint is proven.
 
 The merge and operations order is **evidence-driven**, not an automatic authorization to merge an untested or conflicting PR. Validate CI/statuses anew and perform a read-only B2/SQLite audit before any actual write. The script can operate with 0 new files if the cap is hit; distinguish graceful storage stop from a broken ingestion system.
 
