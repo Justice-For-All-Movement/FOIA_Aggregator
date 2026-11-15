@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 import sqlite3
+import time
 from typing import Optional
 
 from .database_backup import backup_database_to_b2
@@ -46,6 +48,69 @@ def _record_unexpected_source_failure(
             conn.close()
 
 
+def _bounded_crawl_count(value, *, fallback: int, label: str, maximum: int = 10000) -> int:
+    """Fail closed instead of silently crawling unlimited sources/documents."""
+    if value is None:
+        return fallback
+    if type(value) is int:
+        parsed = value
+    elif type(value) is str and value.isascii() and value.isdecimal():
+        parsed = int(value)
+    else:
+        raise ValueError(f"Invalid {label} crawl limit")
+    if not 1 <= parsed <= maximum:
+        raise ValueError(f"Unbounded {label} crawl limit")
+    return parsed
+
+
+def _validate_page_limits(crawler) -> None:
+    """Reject unsafe page budgets before metadata, database or crawler work."""
+    for name, default, minimum, maximum in (
+        ("max_pages_per_source", 50, 1, 5000),
+        ("max_discovered_docs_per_source", 1000, 1, 10000),
+        ("max_depth", 3, 0, 10),
+    ):
+        _bounded_integer(crawler.get(name, default), minimum, maximum, name)
+    for name, default, minimum, maximum in (
+        ("page_timeout_seconds", 30, 1.0, 300.0),
+        ("page_max_size_mb", 5, 0.1, 100.0),
+    ):
+        value = crawler.get(name, default)
+        if type(value) not in (int, float, str):
+            raise ValueError("Invalid crawler." + name)
+        try:
+            parsed = float(value)
+        except (ValueError, OverflowError) as exc:
+            raise ValueError("Invalid crawler." + name) from exc
+        if not math.isfinite(parsed) or not minimum <= parsed <= maximum:
+            raise ValueError("Unbounded crawler." + name)
+
+
+def _bounded_integer(value, minimum: int, maximum: int, label: str) -> int:
+    if type(value) is int:
+        parsed = value
+    elif type(value) is str and value.isascii() and value.isdecimal():
+        parsed = int(value)
+    else:
+        raise ValueError("Invalid crawler." + label)
+    if not minimum <= parsed <= maximum:
+        raise ValueError("Unbounded crawler." + label)
+    return parsed
+
+
+def _validated_dry_run(value) -> bool:
+    """Never turn a malformed dry-run setting into permission to write."""
+    if type(value) is bool:
+        return value
+    if type(value) is str:
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "on", "1"}:
+            return True
+        if normalized in {"false", "no", "off", "0"}:
+            return False
+    raise ValueError("Invalid crawler.dry_run; explicit boolean required")
+
+
 def run_once(
     config_path: str = "config/settings.yaml",
     dry_run: Optional[bool] = None,
@@ -69,13 +134,52 @@ def run_once(
         },
     )
 
+    # Validate resource limits before any lock, database or network action.
+    limits = _validated_cycle_limits(cfg)
+
     # Lock the resolved database path before schema writes or external work.
     with exclusive_writer(cfg.storage.get("db_path"), allow_nested=True):
         init_db(cfg.storage.get("db_path"), cfg.storage.get("files_dir"))
-        return _run_cycle(cfg, refresh_metadata_enabled, backup_enabled)
+        return _run_cycle(cfg, refresh_metadata_enabled, backup_enabled, limits)
 
 
-def _run_cycle(cfg, refresh_metadata_enabled, backup_enabled):
+def _validated_cycle_limits(cfg) -> dict:
+    """FA-010 scale policy: fail closed on unbounded or unthrottled settings."""
+    source_limit = _bounded_crawl_count(
+        cfg.crawler.get("source_limit"), fallback=10000, label="source"
+    )
+    max_docs = _bounded_crawl_count(
+        cfg.crawler.get("max_docs_per_source"),
+        fallback=10, label="per-source document",
+    )
+    dry_run_flag = _validated_dry_run(cfg.crawler.get("dry_run", True))
+    cycle_limit_seconds = _bounded_crawl_count(
+        cfg.crawler.get("maximum_cycle_seconds"),
+        fallback=3600, label="cycle seconds", maximum=86400,
+    )
+    delay_raw = cfg.crawler.get("per_host_delay_seconds", 0.5)
+    try:
+        if type(delay_raw) is bool:
+            raise ValueError("Boolean delay invalid")
+        per_host_delay = float(delay_raw)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("Invalid per-host request delay") from exc
+    if not math.isfinite(per_host_delay) or not 0 <= per_host_delay <= 60:
+        raise ValueError("Unbounded per-host request delay")
+    if not dry_run_flag and per_host_delay <= 0:
+        raise ValueError("Live crawling requires a positive per-host delay")
+    _validate_page_limits(cfg.crawler)
+    return {
+        "source_limit": source_limit,
+        "max_docs": max_docs,
+        "dry_run": dry_run_flag,
+        "cycle_limit_seconds": cycle_limit_seconds,
+        "per_host_delay": per_host_delay,
+    }
+
+
+def _run_cycle(cfg, refresh_metadata_enabled, backup_enabled, limits):
+    cycle_start = time.monotonic()
 
     metadata_ok = True
     if refresh_metadata_enabled:
@@ -96,39 +200,35 @@ def _run_cycle(cfg, refresh_metadata_enabled, backup_enabled):
             "(refresh cadence not yet due)"
         )
 
-    source_limit_raw = cfg.crawler.get("source_limit")
-    source_limit = None
-    if source_limit_raw is not None:
-        try:
-            parsed_limit = int(source_limit_raw)
-            source_limit = parsed_limit if parsed_limit > 0 else None
-        except (TypeError, ValueError):
-            logger.warning(
-                "Invalid crawler.source_limit; crawling all eligible sources"
-            )
-
-    rooms = get_reading_rooms_to_crawl(cfg, limit=source_limit)
+    source_limit = limits["source_limit"]
+    # Enforce the cap locally even if a provider adapter ignores its limit.
+    rooms = get_reading_rooms_to_crawl(cfg, limit=source_limit)[:source_limit]
     logger.info(
-        "Crawling %s reading rooms%s",
-        len(rooms),
-        f" (source limit {source_limit})" if source_limit else "",
+        "Crawling %s reading rooms (source limit %s)", len(rooms), source_limit
     )
 
-    dry_run_flag = cfg.crawler.get("dry_run", True)
-    max_docs = cfg.crawler.get("max_docs_per_source")
-    rate_limiter = HostRateLimiter(
-        float(cfg.crawler.get("per_host_delay_seconds", 0))
-    )
+    dry_run_flag = limits["dry_run"]
+    max_docs = limits["max_docs"]
+    rate_limiter = HostRateLimiter(limits["per_host_delay"])
     journal = RunJournal(cfg.storage.get("db_path"), policy_fingerprint(cfg), [rr["id"] for rr in rooms])
     completed = journal.completed_sources()
     source_failures = False
     cap_reached = False
+    time_budget_exhausted = False
     # Resume the original bounded plan, rather than silently shifting its denominator.
     room_by_id = {rr["id"]: rr for rr in rooms}
     try:
         for source_id in journal.source_ids:
             if source_id in completed:
                 continue
+            if time.monotonic() - cycle_start >= limits["cycle_limit_seconds"]:
+                # Remaining sources stay unreceipted; the journal resumes them
+                # in the next cycle with the same policy fingerprint.
+                logger.warning(
+                    "Crawler cycle time budget exhausted; remaining sources deferred"
+                )
+                time_budget_exhausted = True
+                break
             journal.source_started(source_id)
             if source_id not in room_by_id:
                 journal.source_finished(source_id, "SOURCE_NOT_ELIGIBLE")
@@ -152,9 +252,17 @@ def _run_cycle(cfg, refresh_metadata_enabled, backup_enabled):
                 journal.source_finished(source_id, type(exc).__name__)
                 source_failures = True
         journal.checkpoint("PENDING" if backup_enabled else "EXTERNAL_CHECKPOINT_REQUIRED")
-        journal.finish(metadata_ok=metadata_ok,
-                       state="DEGRADED" if source_failures or not metadata_ok else "COMPLETED",
-                       reason="storage_cap_reached" if cap_reached else "source_or_metadata_failure" if source_failures or not metadata_ok else "bounded_wave_finished")
+        if time_budget_exhausted:
+            journal.finish(metadata_ok=metadata_ok, state="INTERRUPTED",
+                           reason="cycle_time_budget_exhausted")
+        else:
+            journal.finish(
+                metadata_ok=metadata_ok,
+                state="DEGRADED" if source_failures or not metadata_ok else "COMPLETED",
+                reason="storage_cap_reached" if cap_reached
+                else "source_or_metadata_failure" if source_failures or not metadata_ok
+                else "bounded_wave_finished",
+            )
     except BaseException as exc:
         journal.finish(metadata_ok=metadata_ok,
                        state="FAILED" if isinstance(exc, Exception) else "INTERRUPTED",
