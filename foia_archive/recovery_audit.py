@@ -12,6 +12,11 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
+from .storage import MIGRATIONS
+
+MIN_AUDIT_SCHEMA = 6
+SUPPORTED_SCHEMA = max(version for version, _, _ in MIGRATIONS)
+
 
 def _digest(values) -> str:
     return hashlib.sha256(json.dumps(values, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
@@ -27,8 +32,13 @@ def describe_database(path: Path) -> dict:
         if conn.execute("PRAGMA foreign_key_check").fetchone():
             raise RuntimeError("Recovery SQLite contains orphaned relationships")
         versions = {row[0] for row in conn.execute("SELECT version FROM schema_migrations")}
-        if versions != set(range(1, 7)):
-            raise RuntimeError("Recovery audit requires the complete supported schema version 6")
+        newest = max(versions, default=0)
+        # Evidence below needs schema 6 columns; later migrations are additive
+        # (e.g. 7 adds ingestion receipts). Gaps or unknown versions fail closed.
+        if newest < MIN_AUDIT_SCHEMA or newest > SUPPORTED_SCHEMA or versions != set(range(1, newest + 1)):
+            raise RuntimeError(
+                f"Recovery audit requires a complete schema between {MIN_AUDIT_SCHEMA} and {SUPPORTED_SCHEMA}"
+            )
         evidence = {name: set() for name in (
             "agencies", "offices", "sources", "document_metadata", "archived_documents",
             "document_sources", "text_rows", "fts_rows",
