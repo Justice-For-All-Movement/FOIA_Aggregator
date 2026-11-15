@@ -139,3 +139,19 @@ the run fails closed; the local SQLite database must be retained and reviewed
 before the next ingestion run. A successful upload is still verified on restore
 against its embedded checksum and SQLite integrity. Do not disable TLS checks.
 
+
+## B2 Native API recovery path
+
+If all three S3 checkpoint-upload attempts fail with a TLS/SSL transport
+error, the backup writer attempts the documented B2 Native API using the same
+bucket-scoped application key (implemented in PR #48, landed with the
+hardened checkpoint-safety work in PR #52). It authorizes without following
+redirects, accepts only `api*.backblazeb2.com` / `pod*.backblaze(b2).com`
+HTTPS endpoints, requires the `writeFiles` capability on the configured
+bucket, streams the compressed checkpoint with Content-Length and a SHA-1
+checksum, and checks the upload receipt (name, bucket, size, SHA-1). Each
+failed request is reconciled with a Class C exact-key listing before a fresh
+upload URL is tried (at most five attempts). The new checkpoint is downloaded,
+decompressed and hashed before any older checkpoint is pruned. TLS
+verification stays mandatory, and the fallback is never used for S3
+authorization rejections (401/403) or missing credentials.
