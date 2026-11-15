@@ -117,6 +117,17 @@ class RecoveryAuditTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             describe_database(self.after)
 
+    def test_later_additive_schema_is_accepted(self):
+        # FA-004 adds schema 7 (ingestion receipts); audit must keep working.
+        self.change("INSERT INTO schema_migrations VALUES (7,'fixture','2026-01-01')")
+        self.assertEqual(describe_database(self.after)["documents"], describe_database(self.before)["documents"])
+
+    def test_unknown_future_schema_fails_closed(self):
+        self.change("INSERT INTO schema_migrations VALUES (7,'fixture','2026-01-01')")
+        self.change("INSERT INTO schema_migrations VALUES (99,'fixture','2026-01-01')")
+        with self.assertRaises(RuntimeError):
+            describe_database(self.after)
+
     def test_orphaned_relationship_fails_closed(self):
         self.change("UPDATE document_sources SET reading_room_id=999")
         with self.assertRaises(RuntimeError):
