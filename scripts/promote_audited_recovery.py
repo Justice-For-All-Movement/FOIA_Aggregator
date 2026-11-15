@@ -55,7 +55,7 @@ def main() -> None:
         with open(summary_path, "a", encoding="utf-8") as summary:
             summary.write(
                 "## Verified new recovery checkpoint\n\n"
-                f"- New B2 backup: \`{result.key}\`\n"
+                f"- New B2 backup: `{result.key}`\n"
                 f"- Archived object keys: {len(original['keys']):,}\n"
                 "- Previous B2 backups retained for rollback.\n"
                 "- A Render restart/redeploy is needed to load the new snapshot.\n"

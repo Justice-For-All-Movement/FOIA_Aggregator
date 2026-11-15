@@ -1,11 +1,14 @@
 name: Promote audited FOIA recovery checkpoint
 
+# Inert until an operator deliberately enables it: no push/schedule trigger,
+# requires FOIA_RECOVERY_PROMOTION_ENABLED=true and a typed confirmation.
 on:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/promote-audited-recovery.yml
   workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type PROMOTE to write a new verified B2 checkpoint
+        required: true
+        default: ""
 
 permissions:
   contents: read
@@ -17,6 +20,7 @@ concurrency:
 
 jobs:
   promote:
+    if: vars.FOIA_RECOVERY_PROMOTION_ENABLED == 'true' && inputs.confirm == 'PROMOTE'
     runs-on: ubuntu-22.04
     timeout-minutes: 70
     env:
@@ -39,7 +43,7 @@ jobs:
           test -n "$B2_KEY_ID"
           test -n "$B2_APPLICATION_KEY"
           mkdir -p recovery
-          gh run download 38010903638 --repo neophilism/FOIA_Aggregator \
+          gh run download 38010903638 --repo ${{ github.repository }} \
             --name foia-recovery-preserved-38010903638 --dir recovery
           test -s recovery/foia_archive.db
       - name: Re-audit and publish a verified new B2 checkpoint
