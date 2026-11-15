@@ -25,7 +25,7 @@ def probe_group(hostname: str, urls: list[str]) -> dict:
             url,
             user_agent=(
                 "FOIAArchiveICAudit/1.0 "
-                "(+https://github.com/neophilism/FOIA_Aggregator)"
+                "(+https://github.com/Justice-For-All-Movement/FOIA_Aggregator)"
             ),
             timeout=15,
             max_html_bytes=1024 * 1024,

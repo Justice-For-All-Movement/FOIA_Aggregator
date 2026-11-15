@@ -4,7 +4,7 @@
 
 # FOIA Aggregator — complete development, corpus-expansion, and independent-account handoff plan
 
-**Product:** neophilism/FOIA_Aggregator  
+**Product:** Justice-For-All-Movement/FOIA_Aggregator  
 **Authoritative scope:** original October 5–10, 2026 FOIA archive development decisions, subsequent B2/Render operations, and the October 10 instruction to aggregate **all or very many more available FOIA records across all accessible sources** before prioritizing downstream analytical/request projects.  
 **Plan baseline:** 2026-10-10. This is a plan, not a claim of deployment, corpus size, passed CI, or approved spending. **Do not mark work completed from the presence of this document.**
 

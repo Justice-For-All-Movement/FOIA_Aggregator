@@ -38,7 +38,7 @@ jobs:
           test -n "$B2_KEY_ID"
           test -n "$B2_APPLICATION_KEY"
           mkdir -p recovery
-          gh run download 37472478661 --repo neophilism/FOIA_Aggregator \
+          gh run download 37472478661 --repo Justice-For-All-Movement/FOIA_Aggregator \
             --name post-pr38-corpus-resume-37472478661 --dir recovery
           test -s recovery/foia_archive.db
       - name: Compare candidate and B2 manifest without modifying production

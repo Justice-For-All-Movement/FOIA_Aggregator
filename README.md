@@ -338,7 +338,7 @@ For a short presentation sequence based on the real seeded corpus, see `docs/DEM
 
 For a zero-cost public presentation deployment, the repository also includes `render.yaml` for a Render Free Docker web service. The free service can use ephemeral local storage because each cold start restores the newest verified SQLite snapshot from B2. See `docs/RENDER_DEMO.md`.
 
-[Deploy FOIA Aggregator to Render](https://render.com/deploy?repo=https://github.com/neophilism/FOIA_Aggregator)
+[Deploy FOIA Aggregator to Render](https://render.com/deploy?repo=https://github.com/Justice-For-All-Movement/FOIA_Aggregator)
 
 The Blueprint prompts for the two Backblaze secrets during initial creation and otherwise uses the repository-defined deployment configuration.
 
