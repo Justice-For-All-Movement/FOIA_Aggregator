@@ -2,14 +2,14 @@
   "repository": "Justice-For-All-Movement/FOIA_Aggregator",
   "title": "FOIA_Aggregator",
   "planVerified": true,
-  "plannedPrCount": 10,
+  "plannedPrCount": 24,
   "sourceFiles": [
     ".exechub/project.yml",
     "docs/DEVELOPMENT_PLAN.md"
   ],
   "schemaVersion": 1,
-  "roadmapVersion": 1,
-  "observedAt": "2026-10-11T17:38:58.173Z",
+  "roadmapVersion": 2,
+  "observedAt": "2026-11-15T18:52:15.000Z",
   "units": [
     {
       "id": "FA-001",
@@ -17,9 +17,10 @@
       "origin": "original",
       "prs": [
         46,
-        47
+        47,
+        51
       ],
-      "mappingEvidence": "Read-only B2 recovery audit merged; PR #47 remains open for checkpoint promotion, subject to live monotonicity acceptance.",
+      "mappingEvidence": "Read-only recovery audit (#46) and strengthened monotonic evidence audit (#51) merged; promotion workflow (#47) merged inert (dispatch-only, FOIA_RECOVERY_PROMOTION_ENABLED gate). Live B2 promotion/monotonic acceptance pending.",
       "sourceSection": ".exechub/project.yml",
       "contributingPrs": [],
       "dependsOn": [],
@@ -34,9 +35,10 @@
         40,
         43,
         44,
-        48
+        48,
+        52
       ],
-      "mappingEvidence": "B2 upload retries and recovery artifact safeguards merged; PR #48 open for native fallback; real restore/retention acceptance remains pending.",
+      "mappingEvidence": "Checkpoint retries/preservation (#40, #43, #44), verified read-back before pruning plus B2 native fallback (#52; #48 rebased to its docs). Live restore/retention acceptance pending.",
       "sourceSection": ".exechub/project.yml",
       "contributingPrs": [],
       "dependsOn": [],
@@ -50,7 +52,7 @@
       "prs": [
         41
       ],
-      "mappingEvidence": "Single-writer scheduled crawling implementation PR #41 still open; real production sequential ingestion verification remains pending.",
+      "mappingEvidence": "All B2 writer workflows share the foia-b2-single-writer concurrency group (#41, merged with the FOIA_AUTONOMOUS_REFRESH_ENABLED gate kept OFF). Two observed serialized scheduled runs pending.",
       "sourceSection": ".exechub/project.yml",
       "contributingPrs": [],
       "dependsOn": [],
@@ -61,110 +63,779 @@
       "id": "FA-004",
       "title": "Durable autonomous ingestion — approved work package 2 of 2",
       "origin": "original",
-      "prs": [],
+      "prs": [
+        62
+      ],
       "sourceSection": ".exechub/project.yml",
       "contributingPrs": [],
       "dependsOn": [],
       "externalDependencies": [],
-      "externalPrerequisites": []
+      "externalPrerequisites": [],
+      "priorEvidencePrs": [
+        53
+      ],
+      "mappingEvidence": "Ingestion receipts, resume and writer lock merged via #62 (ready replacement of draft #53, plus recovery-audit schema-7 compatibility fix). Merged source work only; operational/live acceptance is separate and pending."
     },
     {
       "id": "FA-005",
       "title": "Archive source and extraction coverage — approved work package 1 of 2",
       "origin": "original",
-      "prs": [],
+      "prs": [
+        63
+      ],
       "sourceSection": ".exechub/project.yml",
       "contributingPrs": [],
       "dependsOn": [],
       "externalDependencies": [],
-      "externalPrerequisites": []
+      "externalPrerequisites": [],
+      "priorEvidencePrs": [
+        54
+      ],
+      "mappingEvidence": "Source census determinism/attribution merged via #63 (replacement of draft #54). Merged source work only; operational/live acceptance is separate and pending."
     },
     {
       "id": "FA-006",
       "title": "Archive source and extraction coverage — approved work package 2 of 2",
       "origin": "original",
-      "prs": [],
+      "prs": [
+        64
+      ],
       "sourceSection": ".exechub/project.yml",
       "contributingPrs": [],
       "dependsOn": [],
       "externalDependencies": [],
-      "externalPrerequisites": []
+      "externalPrerequisites": [],
+      "priorEvidencePrs": [
+        55
+      ],
+      "mappingEvidence": "Bounded DOCX/legacy extraction merged via #64 (replacement of draft #55). Merged source work only; operational/live acceptance is separate and pending."
     },
     {
       "id": "FA-007",
       "title": "Engine Room visibility and alerts — approved work package 1 of 2",
       "origin": "original",
-      "prs": [],
+      "prs": [
+        65
+      ],
       "sourceSection": ".exechub/project.yml",
       "contributingPrs": [],
       "dependsOn": [],
       "externalDependencies": [],
-      "externalPrerequisites": []
+      "externalPrerequisites": [],
+      "priorEvidencePrs": [
+        56
+      ],
+      "mappingEvidence": "Source-linked telemetry projection merged via #65 (replacement of draft #56). Merged source work only; operational/live acceptance is separate and pending."
     },
     {
       "id": "FA-008",
       "title": "Engine Room visibility and alerts — approved work package 2 of 2",
       "origin": "original",
-      "prs": [],
+      "prs": [
+        66
+      ],
       "sourceSection": ".exechub/project.yml",
       "contributingPrs": [],
       "dependsOn": [],
       "externalDependencies": [],
-      "externalPrerequisites": []
+      "externalPrerequisites": [],
+      "priorEvidencePrs": [
+        57
+      ],
+      "mappingEvidence": "Non-delivering alert decisions and incident ledger merged via #66 (replacement of draft #57). Merged source work only; operational/live acceptance is separate and pending."
     },
     {
       "id": "FA-009",
       "title": "Public release and scale readiness — approved work package 1 of 2",
       "origin": "original",
-      "prs": [],
+      "prs": [
+        67
+      ],
       "sourceSection": ".exechub/project.yml",
-      "contributingPrs": [],
+      "contributingPrs": [
+        69
+      ],
       "dependsOn": [],
       "externalDependencies": [],
-      "externalPrerequisites": []
+      "externalPrerequisites": [],
+      "priorEvidencePrs": [
+        58
+      ],
+      "mappingEvidence": "Fail-closed release-readiness gate merged via #67 (replacement of draft #58); #69 makes the web service deployable before B2 is connected. Production release acceptance pending."
     },
     {
       "id": "FA-010",
       "title": "Public release and scale readiness — approved work package 2 of 2",
       "origin": "original",
-      "prs": [],
+      "prs": [
+        68
+      ],
       "sourceSection": ".exechub/project.yml",
       "contributingPrs": [],
       "dependsOn": [],
       "externalDependencies": [],
+      "externalPrerequisites": [],
+      "priorEvidencePrs": [
+        59
+      ],
+      "mappingEvidence": "Scale budget integrated with FA-004 journal via #68 (replacement of draft #59; fixed live-path test delay). Merged source work only; operational/live acceptance is separate and pending."
+    },
+    {
+      "id": "FC-01",
+      "title": "Universal federal source inventory",
+      "origin": "addition",
+      "prs": [
+        70
+      ],
+      "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-01",
+      "contributingPrs": [],
+      "dependsOn": [
+        "FA-005"
+      ],
+      "externalDependencies": [],
+      "externalPrerequisites": [],
+      "mappingEvidence": "Inventory builder (official census + 18 IC + third-party registry, stable source IDs, access/enumeration state, counts) merged via #70. Live census verification pending."
+    },
+    {
+      "id": "FC-02",
+      "title": "Source enumeration and full pagination",
+      "origin": "addition",
+      "prs": [
+        70
+      ],
+      "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-02",
+      "contributingPrs": [],
+      "dependsOn": [
+        "FA-006",
+        "FC-01"
+      ],
+      "externalDependencies": [],
+      "externalPrerequisites": [],
+      "mappingEvidence": "Persistent per-page cursors, dedupe, date windows, BLOCKED/cycle handling merged via #70 (fixtures). Live sampled full traversal pending."
+    },
+    {
+      "id": "FC-03",
+      "title": "FOIA request/release log normalization",
+      "origin": "addition",
+      "prs": [
+        71
+      ],
+      "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-03",
+      "contributingPrs": [],
+      "dependsOn": [
+        "FC-01",
+        "FC-02"
+      ],
+      "externalDependencies": [],
+      "externalPrerequisites": [],
+      "mappingEvidence": "CSV/TSV/XLSX log normalization with row provenance, confidence and failed-row queue merged via #71 (fixtures). PDF/scanned logs and real official logs pending."
+    },
+    {
+      "id": "FC-04",
+      "title": "Third-party released FOIA records and MuckRock integration",
+      "origin": "addition",
+      "prs": [],
+      "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-04",
+      "contributingPrs": [
+        73
+      ],
+      "dependsOn": [
+        "FC-01",
+        "FC-02",
+        "FC-03"
+      ],
+      "externalDependencies": [],
+      "externalPrerequisites": [],
+      "mappingEvidence": "MuckRock adapter against recorded-shape fixtures (#73, inert). Other third-party archives, live sample and binary dedupe pending."
+    },
+    {
+      "id": "FC-05",
+      "title": "Historical and deep-archive backfill",
+      "origin": "addition",
+      "prs": [],
+      "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-05",
+      "contributingPrs": [],
+      "dependsOn": [
+        "FC-02",
+        "FC-03",
+        "FC-04"
+      ],
+      "externalDependencies": [],
       "externalPrerequisites": []
+    },
+    {
+      "id": "FC-06",
+      "title": "Adaptive adapters for API and dynamic portals",
+      "origin": "addition",
+      "prs": [],
+      "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-06",
+      "contributingPrs": [],
+      "dependsOn": [
+        "FC-02"
+      ],
+      "externalDependencies": [],
+      "externalPrerequisites": []
+    },
+    {
+      "id": "FC-07",
+      "title": "Content-type completeness and enrichment",
+      "origin": "addition",
+      "prs": [],
+      "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-07",
+      "contributingPrs": [],
+      "dependsOn": [
+        "FA-006",
+        "FC-04",
+        "FC-05",
+        "FC-06"
+      ],
+      "externalDependencies": [],
+      "externalPrerequisites": []
+    },
+    {
+      "id": "FC-08",
+      "title": "Cross-source identity and dedupe provenance",
+      "origin": "addition",
+      "prs": [],
+      "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-08",
+      "contributingPrs": [],
+      "dependsOn": [
+        "FC-03",
+        "FC-04",
+        "FC-05",
+        "FC-06",
+        "FC-07"
+      ],
+      "externalDependencies": [],
+      "externalPrerequisites": []
+    },
+    {
+      "id": "FC-09",
+      "title": "Metadata-first growth past binary cap",
+      "origin": "addition",
+      "prs": [],
+      "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-09",
+      "contributingPrs": [],
+      "dependsOn": [
+        "FA-002",
+        "FC-01",
+        "FC-02",
+        "FC-03",
+        "FC-04",
+        "FC-05",
+        "FC-06",
+        "FC-07",
+        "FC-08"
+      ],
+      "externalDependencies": [],
+      "externalPrerequisites": []
+    },
+    {
+      "id": "FC-10",
+      "title": "Massive corpus worker throughput and backpressure",
+      "origin": "addition",
+      "prs": [],
+      "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-10",
+      "contributingPrs": [],
+      "dependsOn": [
+        "FA-003",
+        "FA-004",
+        "FC-09"
+      ],
+      "externalDependencies": [],
+      "externalPrerequisites": []
+    },
+    {
+      "id": "FC-11",
+      "title": "Paid storage and metadata search migration, contingent gate",
+      "origin": "addition",
+      "prs": [],
+      "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-11",
+      "contributingPrs": [],
+      "dependsOn": [
+        "FA-010",
+        "FC-09",
+        "FC-10"
+      ],
+      "externalDependencies": [],
+      "externalPrerequisites": [
+        "Explicit owner spending/credentials authorization for paid storage"
+      ]
+    },
+    {
+      "id": "FC-12",
+      "title": "Publication quality and corpus completeness dashboard",
+      "origin": "addition",
+      "prs": [],
+      "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-12",
+      "contributingPrs": [],
+      "dependsOn": [
+        "FC-01",
+        "FC-02",
+        "FC-03",
+        "FC-04",
+        "FC-05",
+        "FC-06",
+        "FC-07",
+        "FC-08",
+        "FC-09",
+        "FC-10",
+        "FC-11"
+      ],
+      "externalDependencies": [],
+      "externalPrerequisites": []
+    },
+    {
+      "id": "FC-13",
+      "title": "Research-ready public exports/API",
+      "origin": "addition",
+      "prs": [],
+      "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-13",
+      "contributingPrs": [
+        72
+      ],
+      "dependsOn": [
+        "FC-03",
+        "FC-08",
+        "FC-12"
+      ],
+      "externalDependencies": [],
+      "externalPrerequisites": [],
+      "mappingEvidence": "Versioned export contract (JSON Schema, stable IDs), snapshot-bound paginated API with rate limit and replayable manifests merged via #72 as partial evidence; completion depends on FC-08 dedupe provenance and FC-12 completeness denominators."
+    },
+    {
+      "id": "FC-14",
+      "title": "Broad corpus acceptance and downstream unblock decision",
+      "origin": "addition",
+      "prs": [],
+      "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-14",
+      "contributingPrs": [],
+      "dependsOn": [
+        "FC-01",
+        "FC-02",
+        "FC-03",
+        "FC-04",
+        "FC-05",
+        "FC-06",
+        "FC-07",
+        "FC-08",
+        "FC-09",
+        "FC-10",
+        "FC-11",
+        "FC-12",
+        "FC-13"
+      ],
+      "externalDependencies": [],
+      "externalPrerequisites": [
+        "Owner/Engine Room review of broad-corpus evidence before unblocking dependent projects"
+      ]
     }
   ],
   "pullRequests": [
+    {
+      "id": 5325976106,
+      "number": 73,
+      "title": "FC-04: MuckRock third-party release adapter (fixtures, inert)",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/73",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T18:50:30.000Z",
+      "updatedAt": "2026-11-15T18:52:08.000Z",
+      "closedAt": "2026-11-15T18:52:08.000Z",
+      "mergedAt": "2026-11-15T18:52:08.000Z",
+      "headSha": "714fd33a71d92c87f35f2ae10a893bcc6569abe1",
+      "baseRef": "main",
+      "mergeCommitSha": "8b5729aa00f924c84bbc622ebde7fc2aaf31c964"
+    },
+    {
+      "id": 5325955850,
+      "number": 72,
+      "title": "FC-13: versioned catalog export contract and API",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/72",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T18:48:03.000Z",
+      "updatedAt": "2026-11-15T18:49:47.000Z",
+      "closedAt": "2026-11-15T18:49:47.000Z",
+      "mergedAt": "2026-11-15T18:49:47.000Z",
+      "headSha": "266ffdd136bdf25eb1af192d64ec8ff4b620dab8",
+      "baseRef": "main",
+      "mergeCommitSha": "ca822fad6bc089a48ede6d89d94cdad47967b11f"
+    },
+    {
+      "id": 5325928140,
+      "number": 71,
+      "title": "FC-03: request log normalization with row provenance",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/71",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T18:44:55.000Z",
+      "updatedAt": "2026-11-15T18:47:32.000Z",
+      "closedAt": "2026-11-15T18:47:32.000Z",
+      "mergedAt": "2026-11-15T18:47:32.000Z",
+      "headSha": "ba0e180b8aa5a10efee9631c6580f023541307bd",
+      "baseRef": "main",
+      "mergeCommitSha": "f4bb059ecf649eebe988e584ce0ff0db992b4257"
+    },
+    {
+      "id": 5325906824,
+      "number": 70,
+      "title": "FC-01/FC-02: source inventory and persistent pagination cursors",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/70",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T18:42:30.000Z",
+      "updatedAt": "2026-11-15T18:44:14.000Z",
+      "closedAt": "2026-11-15T18:44:14.000Z",
+      "mergedAt": "2026-11-15T18:44:14.000Z",
+      "headSha": "9444e87f450eb0f8ae140b7b79b77999305d8c0b",
+      "baseRef": "main",
+      "mergeCommitSha": "aae852595515b0431e8609281734d8390d7b5aa4"
+    },
+    {
+      "id": 5325868887,
+      "number": 69,
+      "title": "Deploy the web service cleanly before B2 is connected",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/69",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T18:38:08.000Z",
+      "updatedAt": "2026-11-15T18:41:23.000Z",
+      "closedAt": "2026-11-15T18:41:23.000Z",
+      "mergedAt": "2026-11-15T18:41:23.000Z",
+      "headSha": "88c5bdbcb5e7a7d4922c1f5ae1ae6fe2ac04377e",
+      "baseRef": "main",
+      "mergeCommitSha": "b47ba931c198596dadc7a378127dce89310db02e"
+    },
+    {
+      "id": 5325805295,
+      "number": 68,
+      "title": "FA-010: Public release and scale readiness — approved work package 2 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/68",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T18:30:44.000Z",
+      "updatedAt": "2026-11-15T18:33:11.000Z",
+      "closedAt": "2026-11-15T18:33:11.000Z",
+      "mergedAt": "2026-11-15T18:33:11.000Z",
+      "headSha": "d066cc73e27d614cd88c2a00b9fce3d8ed9c82c1",
+      "baseRef": "main",
+      "mergeCommitSha": "851a3b7bd8bebda42cca84e984b021a4f1629784"
+    },
+    {
+      "id": 5325793964,
+      "number": 67,
+      "title": "FA-009: Public release and scale readiness — approved work package 1 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/67",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T18:29:22.000Z",
+      "updatedAt": "2026-11-15T18:31:33.000Z",
+      "closedAt": "2026-11-15T18:31:33.000Z",
+      "mergedAt": "2026-11-15T18:31:33.000Z",
+      "headSha": "93a4c65d577fd510d43f3f78487a5a8e4c72587d",
+      "baseRef": "main",
+      "mergeCommitSha": "ec3b8a6560e5d08a01921cfbb336330bc2621d4d"
+    },
+    {
+      "id": 5325793447,
+      "number": 66,
+      "title": "FA-008: Engine Room visibility and alerts — approved work package 2 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/66",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T18:29:19.000Z",
+      "updatedAt": "2026-11-15T18:31:26.000Z",
+      "closedAt": "2026-11-15T18:31:26.000Z",
+      "mergedAt": "2026-11-15T18:31:26.000Z",
+      "headSha": "b3d377a149857fa65ff4b7a722605ae8ed7ba91d",
+      "baseRef": "main",
+      "mergeCommitSha": "488736b9e26d8ea9690cea049d57af2cfd04815e"
+    },
+    {
+      "id": 5325792927,
+      "number": 65,
+      "title": "FA-007: Engine Room visibility and alerts — approved work package 1 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/65",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T18:29:15.000Z",
+      "updatedAt": "2026-11-15T18:31:19.000Z",
+      "closedAt": "2026-11-15T18:31:19.000Z",
+      "mergedAt": "2026-11-15T18:31:19.000Z",
+      "headSha": "0841dd568b1946d0d8f0075f1bf813fc0526644a",
+      "baseRef": "main",
+      "mergeCommitSha": "bb5bf5ddd1380be4a7b6824eb69bcc8e5c02a466"
+    },
+    {
+      "id": 5325792350,
+      "number": 64,
+      "title": "FA-006: Archive source and extraction coverage — approved work package 2 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/64",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T18:29:11.000Z",
+      "updatedAt": "2026-11-15T18:31:12.000Z",
+      "closedAt": "2026-11-15T18:31:11.000Z",
+      "mergedAt": "2026-11-15T18:31:11.000Z",
+      "headSha": "7682104719989addaaf760bd8a48ce4a129369d3",
+      "baseRef": "main",
+      "mergeCommitSha": "98f1533b3d314fa88c280c6c7f1baefcd34004be"
+    },
+    {
+      "id": 5325791811,
+      "number": 63,
+      "title": "FA-005: Archive source and extraction coverage — approved work package 1 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/63",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T18:29:07.000Z",
+      "updatedAt": "2026-11-15T18:31:08.000Z",
+      "closedAt": "2026-11-15T18:31:08.000Z",
+      "mergedAt": "2026-11-15T18:31:08.000Z",
+      "headSha": "c4d64c30b8588e2252942e2fe8274100af1716b9",
+      "baseRef": "main",
+      "mergeCommitSha": "ef6aa65e56223a63fa6a5dd58e05fdd933506c2f"
+    },
+    {
+      "id": 5325755803,
+      "number": 62,
+      "title": "FA-004: Durable autonomous ingestion — approved work package 2 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/62",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T18:24:51.000Z",
+      "updatedAt": "2026-11-15T18:27:41.000Z",
+      "closedAt": "2026-11-15T18:27:40.000Z",
+      "mergedAt": "2026-11-15T18:27:40.000Z",
+      "headSha": "8a95d5b32bd18c17ef65d20a09f2b3ca4007f38e",
+      "baseRef": "main",
+      "mergeCommitSha": "61534b6332578839c6628495c85f66ed72a14684"
+    },
+    {
+      "id": 5325738598,
+      "number": 61,
+      "title": "Fix PR-registry CI after repository transfer",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/61",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-15T18:22:52.000Z",
+      "updatedAt": "2026-11-15T18:24:23.000Z",
+      "closedAt": "2026-11-15T18:24:23.000Z",
+      "mergedAt": "2026-11-15T18:24:23.000Z",
+      "headSha": "607a2758a731baaedffc00dd1e356a418a942ca3",
+      "baseRef": "main",
+      "mergeCommitSha": "088a104b51d3bc426a9ba76c79511d01a5f1bb8d"
+    },
+    {
+      "id": 4941655752,
+      "number": 60,
+      "title": "Integrate Development Deployment Monitor (inventory-only)",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/60",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-10-20T19:58:13.000Z",
+      "updatedAt": "2026-10-20T20:03:20.000Z",
+      "closedAt": "2026-10-20T20:03:20.000Z",
+      "mergedAt": "2026-10-20T20:03:20.000Z",
+      "headSha": "9de5006588c46e49add1d9e5ca95b4481297cb4a",
+      "baseRef": "main",
+      "mergeCommitSha": "ffdf1a0cfda0a80eea111a3b6bacff9b9d3ce951"
+    },
+    {
+      "id": 4913311936,
+      "number": 59,
+      "title": "FA-010: Public release and scale readiness — approved work package 2 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/59",
+      "state": "closed",
+      "draft": true,
+      "createdAt": "2026-10-18T22:17:02.000Z",
+      "updatedAt": "2026-11-15T18:30:45.000Z",
+      "closedAt": "2026-11-15T18:30:42.000Z",
+      "mergedAt": null,
+      "headSha": "f671d651f8e0296465c04166dc9ad32611c8c00e",
+      "baseRef": "main",
+      "mergeCommitSha": "aa1e7c1fec07c60b4071152ae028d6c0774900d0"
+    },
+    {
+      "id": 4913306556,
+      "number": 58,
+      "title": "FA-009: Public release and scale readiness — approved work package 1 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/58",
+      "state": "closed",
+      "draft": true,
+      "createdAt": "2026-10-18T22:16:11.000Z",
+      "updatedAt": "2026-11-15T18:29:24.000Z",
+      "closedAt": "2026-11-15T18:29:21.000Z",
+      "mergedAt": null,
+      "headSha": "93a4c65d577fd510d43f3f78487a5a8e4c72587d",
+      "baseRef": "main",
+      "mergeCommitSha": "3662aec0ee52b697b4b6dff3f82b384caa6ee9fb"
+    },
+    {
+      "id": 4913302134,
+      "number": 57,
+      "title": "FA-008: Engine Room visibility and alerts — approved work package 2 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/57",
+      "state": "closed",
+      "draft": true,
+      "createdAt": "2026-10-18T22:15:29.000Z",
+      "updatedAt": "2026-11-15T18:29:20.000Z",
+      "closedAt": "2026-11-15T18:29:17.000Z",
+      "mergedAt": null,
+      "headSha": "b3d377a149857fa65ff4b7a722605ae8ed7ba91d",
+      "baseRef": "main",
+      "mergeCommitSha": "0177d80fdd1178f7f94bcd3782f3a1905111a7d9"
+    },
+    {
+      "id": 4913297502,
+      "number": 56,
+      "title": "FA-007: Engine Room visibility and alerts — approved work package 1 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/56",
+      "state": "closed",
+      "draft": true,
+      "createdAt": "2026-10-18T22:14:45.000Z",
+      "updatedAt": "2026-11-15T18:29:16.000Z",
+      "closedAt": "2026-11-15T18:29:13.000Z",
+      "mergedAt": null,
+      "headSha": "0841dd568b1946d0d8f0075f1bf813fc0526644a",
+      "baseRef": "main",
+      "mergeCommitSha": "85f7df885a5ff1d63131064a1bc90b8a01797d3b"
+    },
+    {
+      "id": 4913048564,
+      "number": 55,
+      "title": "FA-006: Archive source and extraction coverage — approved work package 2 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/55",
+      "state": "closed",
+      "draft": true,
+      "createdAt": "2026-10-18T21:41:03.000Z",
+      "updatedAt": "2026-11-15T18:29:12.000Z",
+      "closedAt": "2026-11-15T18:29:10.000Z",
+      "mergedAt": null,
+      "headSha": "7682104719989addaaf760bd8a48ce4a129369d3",
+      "baseRef": "main",
+      "mergeCommitSha": "73da354db751ece527ce050f7c4ebc35993c1d43"
+    },
+    {
+      "id": 4913040047,
+      "number": 54,
+      "title": "FA-005: Archive source and extraction coverage — approved work package 1 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/54",
+      "state": "closed",
+      "draft": true,
+      "createdAt": "2026-10-18T21:39:54.000Z",
+      "updatedAt": "2026-11-15T18:29:08.000Z",
+      "closedAt": "2026-11-15T18:29:06.000Z",
+      "mergedAt": null,
+      "headSha": "c4d64c30b8588e2252942e2fe8274100af1716b9",
+      "baseRef": "main",
+      "mergeCommitSha": "3f74a13d64cee5eeac0cfa0b6d72622853918e29"
+    },
+    {
+      "id": 4913032923,
+      "number": 53,
+      "title": "FA-004: Durable autonomous ingestion — approved work package 2 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/53",
+      "state": "closed",
+      "draft": true,
+      "createdAt": "2026-10-18T21:38:56.000Z",
+      "updatedAt": "2026-11-15T18:24:53.000Z",
+      "closedAt": "2026-11-15T18:24:50.000Z",
+      "mergedAt": null,
+      "headSha": "8a95d5b32bd18c17ef65d20a09f2b3ca4007f38e",
+      "baseRef": "main",
+      "mergeCommitSha": "28c62376ec1334eb94857de3e0e81b24e68b21a6"
+    },
+    {
+      "id": 4898894323,
+      "number": 52,
+      "title": "FA-002: Backup recovery and archive consistency — approved work package 2 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/52",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-10-17T09:18:28.000Z",
+      "updatedAt": "2026-11-15T18:19:53.000Z",
+      "closedAt": "2026-11-15T18:19:53.000Z",
+      "mergedAt": "2026-11-15T18:19:53.000Z",
+      "headSha": "157f698b50f581bfa06d527ba3860261ae5bf084",
+      "baseRef": "main",
+      "mergeCommitSha": "e62b283e5254e9a84674ffc90a3e0e19b7ef29d3"
+    },
+    {
+      "id": 4898543384,
+      "number": 51,
+      "title": "FA-001: Backup recovery and archive consistency — approved work package 1 of 2",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/51",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-10-17T08:19:44.000Z",
+      "updatedAt": "2026-11-15T18:19:38.000Z",
+      "closedAt": "2026-11-15T18:19:37.000Z",
+      "mergedAt": "2026-11-15T18:19:37.000Z",
+      "headSha": "64195d47de57f3a7832c4f7e67e8539aefb07c37",
+      "baseRef": "main",
+      "mergeCommitSha": "c2818e4a8bd8b0b121317b7ffb7fe755e4c01ce6"
+    },
+    {
+      "id": 4848360829,
+      "number": 50,
+      "title": "Standardize the canonical PR registry for Boardroom and Engine Room",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/50",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-10-13T19:26:39.000Z",
+      "updatedAt": "2026-10-13T19:39:12.000Z",
+      "closedAt": "2026-10-13T19:39:12.000Z",
+      "mergedAt": "2026-10-13T19:39:12.000Z",
+      "headSha": "7d75212dc1b9bdf52f41a43116deb4e166939839",
+      "baseRef": "main",
+      "mergeCommitSha": "903c8f58c788f2990c3355154d5055d838624d51"
+    },
+    {
+      "id": 4848027796,
+      "number": 49,
+      "title": "Owner policy: proceed with AI security review; defer external audit",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/49",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-10-13T18:57:59.000Z",
+      "updatedAt": "2026-10-13T19:09:46.000Z",
+      "closedAt": "2026-10-13T19:09:46.000Z",
+      "mergedAt": "2026-10-13T19:09:46.000Z",
+      "headSha": "ecfb5ead9460f339781932488440c365a859b1e2",
+      "baseRef": "main",
+      "mergeCommitSha": "9ff113cd2467b1e740e09531ac35699712df31b5"
+    },
     {
       "id": 4807488050,
       "number": 48,
       "title": "Fallback to B2 Native API when S3 checkpoint uploads repeatedly fail TLS",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/48",
-      "state": "open",
+      "state": "closed",
       "draft": false,
       "createdAt": "2026-10-10T00:56:54.000Z",
-      "updatedAt": "2026-10-10T00:57:55.000Z",
-      "closedAt": null,
-      "mergedAt": null,
-      "headSha": "1f3f950b3ab7203ec30e8d6d02730ffc909e7e93",
+      "updatedAt": "2026-11-15T18:27:28.000Z",
+      "closedAt": "2026-11-15T18:27:27.000Z",
+      "mergedAt": "2026-11-15T18:27:27.000Z",
+      "headSha": "27512a24977eb6f428302a057d6ad91c08049fa0",
       "baseRef": "main",
-      "mergeCommitSha": "4c73d059141e36c02c985877b377db858ebb9b11"
+      "mergeCommitSha": "563533400ca528a44b0364684f560a2a1422b97a"
     },
     {
       "id": 4807475598,
       "number": 47,
       "title": "Promote audited recovery SQLite as new verified B2 checkpoint",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/47",
-      "state": "open",
+      "state": "closed",
       "draft": false,
       "createdAt": "2026-10-10T00:55:02.000Z",
-      "updatedAt": "2026-10-10T00:55:02.000Z",
-      "closedAt": null,
-      "mergedAt": null,
-      "headSha": "168d806fd2bcab0d1c69d334548b7f68ca419b49",
+      "updatedAt": "2026-11-15T18:34:37.000Z",
+      "closedAt": "2026-11-15T18:34:37.000Z",
+      "mergedAt": "2026-11-15T18:34:37.000Z",
+      "headSha": "be7a4b3ead7b9e9ab30b6970c003b944588394e2",
       "baseRef": "main",
-      "mergeCommitSha": "f63e6fe402992ece27c64eae0f46b43240816826"
+      "mergeCommitSha": "99a07953bc45ef94bceb403fd5cf9fe86a663e9f"
     },
     {
       "id": 4807456343,
@@ -246,15 +917,15 @@
       "number": 41,
       "title": "Serialize scheduled FOIA crawling outside ephemeral Render web process",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/41",
-      "state": "open",
+      "state": "closed",
       "draft": false,
       "createdAt": "2026-10-10T00:42:26.000Z",
-      "updatedAt": "2026-10-10T00:42:26.000Z",
-      "closedAt": null,
-      "mergedAt": null,
-      "headSha": "6eab2f3f80ad5efc58287ebe6cfaf91a96b1f0b4",
+      "updatedAt": "2026-11-15T18:34:33.000Z",
+      "closedAt": "2026-11-15T18:34:33.000Z",
+      "mergedAt": "2026-11-15T18:34:33.000Z",
+      "headSha": "7b6c3d8e8ec6a221d8e13724f38fe7e4f9db049d",
       "baseRef": "main",
-      "mergeCommitSha": "7dc3a06d697b88b62e9f4e9ea9130880f590cd50"
+      "mergeCommitSha": "e06356437217e165473644922721b68d344e80fe"
     },
     {
       "id": 4807399709,
@@ -856,5 +1527,10 @@
       "baseRef": "main",
       "mergeCommitSha": "f416685ca68d912b933e5c513a23d3c014fe60b2"
     }
-  ]
+  ],
+  "plannedPrCountByOrigin": {
+    "original": 10,
+    "addition": 14
+  },
+  "denominatorNote": "The approved .exechub ten-unit operating denominator (FA-001..FA-010) is unchanged. FC-01..FC-14 are explicitly user-requested additions tracked as a separate additions denominator."
 }

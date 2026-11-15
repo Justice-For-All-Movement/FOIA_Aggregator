@@ -1,12 +1,12 @@
 # FOIA Aggregator — verified handoff status
 
-**Snapshot:** October 10, 2026 (repository and PR API review). Refresh all claims before execution; this document is a recorded checkpoint, not an automatically updated live dashboard.
+**Snapshot:** November 15, 2026 (integration checkpoint after merging the FA stack and first FC units; refreshed from the GitHub REST API). Earlier sections below are retained as dated history. Refresh all claims before execution; this document is a recorded checkpoint, not a live dashboard.
 
 ## Authoritative documents
 - [Full development plan](DEVELOPMENT_PLAN.md): 10 approved operational FA units plus 14 added FC broad-coverage deliverables.
 - [Agent operating rules](../AGENTS.md).
 - [README](../README.md), [corpus expansion/storage](CORPUS_EXPANSION.md), [source access](SOURCE_ACCESS.md), [deployment](PRESENTATION_DEPLOYMENT.md), [admin](ADMIN_DASHBOARD.md).
-- [Engine Room certification audit](https://github.com/neophilism/Engine-Room/issues/71).
+- [Engine Room certification audit](https://github.com/neophilism/Engine-Room/issues/71) (external repository; not modified here).
 
 ## FA-001 recovery-audit hardening — October 17, 2026
 
@@ -62,17 +62,40 @@ remain subject to their audit, upload, single-writer and live acceptance gates.
 - Presentation Render free service is ephemeral/read-only and must load a separately verified B2 metadata checkpoint. Web heartbeat does not mean authoritative crawling happened.
 - The paid future ~1 TB tier requires explicit user approval; meanwhile metadata/source catalog coverage should expand without mislabeling remote-only records as archived.
 
-## Open PR collision check (2026-10-10)
-1. [#48 — B2 native upload fallback for repeated S3 TLS failures](https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/48), OPEN when checked. Review security and tests first.
-2. [#47 — promote recovered database to a new verified B2 checkpoint](https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/47), OPEN when checked; confirm preservation/monotonic audit evidence and dependency on upload fix.
-3. [#41 — serialized scheduled crawling outside ephemeral Render](https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/41), OPEN when checked; review stale branch/conflict after others land. Never activate until reliable recovery/checkpoint is proven.
+## Integration checkpoint — 2026-11-15
 
-The merge and operations order is **evidence-driven**, not an automatic authorization to merge an untested or conflicting PR. Validate CI/statuses anew and perform a read-only B2/SQLite audit before any actual write. The script can operate with 0 new files if the cap is hit; distinguish graceful storage stop from a broken ingestion system.
+**Open PRs at checkpoint:** only the registry/handoff refresh PR that carries this document. `python -m unittest discover -s tests` on `main` after #73: **385 tests, OK** (Python 3.12 venv). Status levels below follow AGENTS.md: *code complete / integrated* is not *data synchronized, deployed, or real coverage validated*.
+
+| Unit | PRs (merged) | Level reached | Still pending |
+| --- | --- | --- | --- |
+| FA-001 | #46, #51, #47 | integrated; #47 promotion workflow is **inert** (dispatch-only, `FOIA_RECOVERY_PROMOTION_ENABLED` + typed `PROMOTE`) | live B2 audit + monotonic promotion |
+| FA-002 | #40, #43, #44, #52, #48 (docs) | integrated; native B2 fallback landed hardened in #52 | live restore/retention acceptance |
+| FA-003 | #41 | integrated; all B2 writers share `foia-b2-single-writer`; scheduled refresh stays gated OFF | two observed serialized scheduled runs |
+| FA-004 | #62 (draft #53) | integrated; recovery audit accepts additive schema ≥ 6 | live run receipts |
+| FA-005..FA-009 | #63–#67 (drafts #54–#58), #69 | integrated | live census, telemetry/alert evidence, release acceptance |
+| FA-010 | #68 (draft #59) | integrated with FA-004 journal; live crawls need a positive host delay | production scale acceptance |
+| FC-01 / FC-02 | #70 | code complete, fixtures | live census and sampled full traversal |
+| FC-03 | #71 | code complete, fixtures | real official logs; PDF/scanned logs |
+| FC-04 | #73 (contributing) | MuckRock adapter, fixtures, inert | other archives, live sample, binary dedupe |
+| FC-13 | #72 (contributing) | export contract/API/snapshots | depends on FC-08 and FC-12 |
+| FC-05..FC-12, FC-14 | — | not started | — |
+
+Draft PRs #53–#59 were closed and reopened as ready PRs #62–#68 on the same branches because the REST API cannot un-draft a PR and GraphQL was unavailable; each draft links to its replacement. #61 fixed the PR-registry CI after the repository moved to `Justice-For-All-Movement/FOIA_Aggregator`. `.github/deployment-monitor.json` still names the old owner (changing it triggers an external reusable workflow); follow-up.
+
+Schema is now version 10: 8 = enumeration cursors (FC-02), 9 = request logs (FC-03), 10 = third-party releases (FC-04). All are additive and accepted by the FA-001 recovery audit.
+
+### Deployment (no Render resources were created or changed)
+The Docker web service now starts without B2 (#69): the entrypoint no longer crash-loops, the app serves an empty placeholder index at `<db>.unconnected.db` (never at `FOIA_DB_PATH`, so a later verified bootstrap is not blocked), every page shows "Archive not connected", and `/healthz` stays 200 with an `archive` status object. Binding: `uvicorn ui.server:app --host 0.0.0.0 --port ${PORT:-8000}`. `render.yaml` declares `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET`, `B2_REGION`, `B2_ENDPOINT_URL`, `FOIA_ADMIN_PASSWORD`, `FOIA_PUBLIC_BASE_URL` as `sync: false`. Required vs optional variables: [PRESENTATION_DEPLOYMENT.md §10](PRESENTATION_DEPLOYMENT.md#10-deploying-before-b2-is-connected-render-free-web).
+
+### Blockers (need the owner)
+- B2 credentials/acceptance: live checkpoint restore, recovery promotion (#47), first scheduled serialized runs (#41), storage measurement against the 8.5/9.0 GB caps.
+- Render: creating/redeploying the service and entering secrets is an owner action.
+- Live source access: FC-01/02 census and enumeration, FC-03 official logs and FC-04 MuckRock sampling require bounded live runs that respect robots, rate limits and terms.
 
 ## Next unblocked implementation work
-- **Without access or spend:** run full unittest locally; verify source census across FOIA.gov, official current/historic reading rooms and all 18 IC elements; document exact gaps. Implement FC-01/02 source inventory and pagination fixtures, then public request-log/MuckRock adapters with permissions and provenance. Review PR changes but do not replicate them.
-- **With existing B2/GitHub permissions:** resolve and test #48/#47; audit and restore checkpoint to separate SQLite file; then enable a single serialized crawler via #41 only after acceptance.
-- **With later explicit paid-tier approval:** scale objects, metadata DB and public search after proving first-tier recovery and a monthly budget.
+- **Without access or spend:** FC-06 adaptive adapters (fixtures), FC-07 content-type completeness, FC-08 cross-source identity/dedupe (unblocks FC-13 completion), FC-09 metadata-first growth, FC-12 completeness dashboard using the FC-01 inventory and FC-02 coverage report.
+- **With B2 credentials:** read-only audit → `restore-db` to a separate file → dispatch #47 promotion only after monotonic proof → enable the gated refresh (#41) and observe two serialized runs.
+- **With later explicit paid-tier approval:** FC-11 storage/search migration.
 
 ## Runbook
     python -m pip install -r requirements.txt
@@ -81,6 +104,10 @@ The merge and operations order is **evidence-driven**, not an automatic authoriz
     python main.py run --dry-run true --max-docs-per-source 10
     python main.py reconcile-b2
     python main.py restore-db
+    python main.py source-inventory --census-json source-census-results/source-census.json
+    python main.py ingest-request-log <local-log.csv> --source-url <official URL> --agency <slug>
+    python main.py export-catalog <output-dir>
+    python main.py ingestion-status
 
 B2 commands require correctly configured server-side environment/secrets and must never print keys. Do not initiate a live archiving wave without an exclusive writer, actual remaining capacity and verified checkpoint.
 
