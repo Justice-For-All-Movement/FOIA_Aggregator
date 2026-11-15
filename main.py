@@ -305,6 +305,78 @@ def export_catalog(
                f"({manifest['snapshot_id']}) in {len(manifest['files'])} files")
 
 
+def _read_only_connection(config: str):
+    import sqlite3
+    from pathlib import Path
+    db_path = Path(load_config(config).storage.get("db_path"))
+    conn = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+@app.command("export-dataset")
+def export_dataset(
+    dataset: str = typer.Argument(..., help="document-text or request-log-rows"),
+    output_dir: str = typer.Argument(...),
+    config: str = "config/settings.yaml",
+):
+    """Write a producer-stamped snapshot of an extension dataset (read-only)."""
+    from pathlib import Path
+    from foia_archive.export_extensions import DATASETS, write_dataset_snapshot
+    if dataset not in DATASETS:
+        raise typer.BadParameter(f"dataset must be one of {sorted(DATASETS)}")
+    conn = _read_only_connection(config)
+    try:
+        manifest = write_dataset_snapshot(conn, Path(output_dir), dataset)
+    finally:
+        conn.close()
+    typer.echo(f"Exported {manifest['counts']['records']} {dataset} records ({manifest['snapshot_id']})")
+
+
+@app.command("export-log-coverage")
+def export_log_coverage(output_dir: str, config: str = "config/settings.yaml"):
+    """Write the per agency/year request-log coverage export (read-only)."""
+    from pathlib import Path
+    from foia_archive.export_extensions import write_log_coverage
+    conn = _read_only_connection(config)
+    try:
+        manifest = write_log_coverage(conn, Path(output_dir))
+    finally:
+        conn.close()
+    typer.echo(f"Exported {manifest['records']['count']} coverage records; producer commit "
+               f"{manifest['producer']['commit'] or 'UNPINNED'}")
+
+
+@app.command("import-sfl-inbox")
+def import_sfl_inbox(
+    inbox: str = typer.Option(None, "--inbox", help="Defaults to FOIA_INGEST_INBOX or <db dir>/sfl-inbox."),
+    config: str = "config/settings.yaml",
+):
+    """Import staged Send_FOIA_Log_Requests bundles (authoritative writer only)."""
+    import os
+    import re
+    from pathlib import Path
+    from foia_archive.ingestion_journal import exclusive_writer
+    from foia_archive.sfl_interchange import import_staged
+    from foia_archive.storage import get_connection, init_db
+
+    cfg = load_config(config)
+    db_path = cfg.storage.get("db_path")
+    root = Path(inbox or os.getenv("FOIA_INGEST_INBOX") or Path(db_path).parent / "sfl-inbox")
+    staged = sorted(p for p in root.iterdir() if re.fullmatch(r"[0-9a-f]{64}", p.name)) if root.is_dir() else []
+    with exclusive_writer(db_path):
+        init_db(db_path, cfg.storage.get("files_dir"))
+        conn = get_connection(db_path)
+        try:
+            for directory in staged:
+                result = import_staged(conn, directory)
+                typer.echo(f"{result['bundle_sha256']}: imported={result['imported']} "
+                           f"request_logs={result['request_logs']}")
+        finally:
+            conn.close()
+    typer.echo(f"{len(staged)} staged bundle(s) processed")
+
+
 @app.command()
 def daemon(config: str = "config/settings.yaml"):
     """Run continuous crawler."""

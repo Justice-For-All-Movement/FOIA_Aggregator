@@ -33,5 +33,8 @@ services:
         sync: false
       - key: FOIA_PUBLIC_BASE_URL
         sync: false
+      # Enables POST /api/v1/ingest/sfl-bundle (>= 24 chars); disabled when unset.
+      - key: FOIA_INGEST_TOKEN
+        sync: false
       - key: B2_MAX_ARCHIVE_BYTES
         value: "8500000000"

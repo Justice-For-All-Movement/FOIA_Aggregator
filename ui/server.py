@@ -1,6 +1,7 @@
 """FastAPI UI for browsing FOIA archive documents."""
 from __future__ import annotations
 
+import json
 import math
 import os
 import secrets
@@ -26,6 +27,13 @@ from foia_archive.archive_storage import (
 )
 from foia_archive.archive_status import database_present, resolve_web_database
 from foia_archive.database_backup import list_database_backups
+from foia_archive.export_extensions import (
+    export_log_rows_page,
+    export_text_page,
+    load_extension_schema,
+    log_coverage_files,
+)
+from foia_archive import sfl_interchange
 from foia_archive.export_contract import (
     ExportCursorError,
     export_manifest,
@@ -458,6 +466,96 @@ async def export_records(request: Request, cursor: Optional[str] = None, limit: 
     finally:
         conn.close()
     return JSONResponse(page)
+
+
+@app.get("/api/v1/export/schemas/{name}")
+async def export_extension_schema(request: Request, name: str):
+    limited = _export_rate_limited(request)
+    if limited:
+        return limited
+    try:
+        return JSONResponse(load_extension_schema(name))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown schema") from None
+
+
+def _paged_export(pager, cursor, limit):
+    conn = get_db()
+    try:
+        return JSONResponse(pager(conn, cursor=cursor, limit=limit))
+    except ExportCursorError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        conn.close()
+
+
+@app.get("/api/v1/export/document-text")
+async def export_document_text(request: Request, cursor: Optional[str] = None, limit: int = 20):
+    return _export_rate_limited(request) or _paged_export(export_text_page, cursor, limit)
+
+
+@app.get("/api/v1/export/request-log-rows")
+async def export_request_log_rows(request: Request, cursor: Optional[str] = None, limit: int = 200):
+    return _export_rate_limited(request) or _paged_export(export_log_rows_page, cursor, limit)
+
+
+def _log_coverage_files():
+    conn = get_db()
+    try:
+        return log_coverage_files(conn)
+    finally:
+        conn.close()
+
+
+@app.get("/api/v1/export/log-coverage/manifest.json")
+async def export_log_coverage_manifest(request: Request):
+    limited = _export_rate_limited(request)
+    if limited:
+        return limited
+    return Response(_log_coverage_files()[0], media_type="application/json")
+
+
+@app.get("/api/v1/export/log-coverage/coverage.jsonl")
+async def export_log_coverage_records(request: Request):
+    limited = _export_rate_limited(request)
+    if limited:
+        return limited
+    return Response(_log_coverage_files()[1], media_type="application/x-ndjson")
+
+
+MIN_INGEST_TOKEN_LENGTH = 24
+
+
+@app.post("/api/v1/ingest/sfl-bundle")
+async def ingest_sfl_bundle(request: Request):
+    """Receive a Send_FOIA_Log_Requests bundle; disabled unless FOIA_INGEST_TOKEN is set."""
+    token = (os.getenv("FOIA_INGEST_TOKEN") or "").strip()
+    if len(token) < MIN_INGEST_TOKEN_LENGTH:
+        raise HTTPException(status_code=404, detail="Not Found")
+    scheme, _, supplied = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not secrets.compare_digest(
+        supplied.strip().encode("utf-8"), token.encode("utf-8")
+    ):
+        raise HTTPException(status_code=401, detail="Bearer token required",
+                            headers={"WWW-Authenticate": "Bearer"})
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > sfl_interchange.MAX_ENVELOPE_BYTES:
+        raise HTTPException(status_code=413, detail="Bundle too large")
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > sfl_interchange.MAX_ENVELOPE_BYTES:
+            raise HTTPException(status_code=413, detail="Bundle too large")
+    try:
+        envelope = json.loads(bytes(body).decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise HTTPException(status_code=400, detail="Body must be a JSON envelope") from None
+    inbox = Path(os.getenv("FOIA_INGEST_INBOX") or (CONFIGURED_DB_PATH.parent / "sfl-inbox"))
+    durable = (os.getenv("FOIA_INGEST_INBOX_DURABLE") or "").strip().lower() in ("1", "true", "yes", "on")
+    status, payload = sfl_interchange.receive(envelope, inbox, durable=durable)
+    return JSONResponse(payload, status_code=status)
 
 
 @app.get("/admin", response_class=HTMLResponse)

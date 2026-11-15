@@ -1,0 +1,36 @@
+{
+  "counts": {
+    "components": 7,
+    "fulfilled_logs": 1,
+    "requests": 3
+  },
+  "excluded": [
+    "requester principal",
+    "requester profile",
+    "rendered bodies",
+    "quarantined attachments"
+  ],
+  "files": [
+    {
+      "path": "components.jsonl",
+      "records": 7,
+      "sha256": "de1eb6dcf58f33cb91f6495d8caddb1714da476b02c53864b8e8980b45090a57"
+    },
+    {
+      "path": "requests.jsonl",
+      "records": 3,
+      "sha256": "4372783ae2cead65efe6da6ac8cb7708b7a90d2a138c02632850a6ac44ccb3bc"
+    },
+    {
+      "path": "fulfilled_logs.jsonl",
+      "records": 1,
+      "sha256": "fd6d193e3beeb94933400f5ca363c24177d41026720eafba1257734ede0f4bbf"
+    }
+  ],
+  "generated_at": "2026-12-02T00:00:00Z",
+  "request_states": {
+    "fulfilled": 1,
+    "submitted": 2
+  },
+  "schema_version": "sfl-interchange/1"
+}
