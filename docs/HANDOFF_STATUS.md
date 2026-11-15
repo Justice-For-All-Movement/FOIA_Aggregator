@@ -1,6 +1,6 @@
 # FOIA Aggregator — verified handoff status
 
-**Snapshot:** November 15, 2026 (integration checkpoint after merging the FA stack and first FC units; refreshed from the GitHub REST API). Earlier sections below are retained as dated history. Refresh all claims before execution; this document is a recorded checkpoint, not a live dashboard.
+**Snapshot:** November 15, 2026, second checkpoint (after PRs #75–#79; refreshed from the GitHub REST API). Earlier sections are retained as dated history. Refresh all claims before execution; this is a recorded checkpoint, not a live dashboard.
 
 ## Authoritative documents
 - [Full development plan](DEVELOPMENT_PLAN.md): 10 approved operational FA units plus 14 added FC broad-coverage deliverables.
@@ -62,6 +62,29 @@ remain subject to their audit, upload, single-writer and live acceptance gates.
 - Presentation Render free service is ephemeral/read-only and must load a separately verified B2 metadata checkpoint. Web heartbeat does not mean authoritative crawling happened.
 - The paid future ~1 TB tier requires explicit user approval; meanwhile metadata/source catalog coverage should expand without mislabeling remote-only records as archived.
 
+## Second checkpoint — 2026-11-15 (downstream asks + FC-05..FC-14 foundations)
+
+`main` after #79: **445 tests, OK**; schema version **13**. No open PRs besides the one carrying this document. Main stays deployable without B2 (all new tables are additive; web reads guard missing tables).
+
+**Downstream asks (#75), all additive; FC-13 records and the pinned `catalog-record.v1.schema.json` (SHA-256 `1e8abc95…f34`) are unchanged:**
+1. `foia-document-text-export/1` — text + `text_sha256` + extraction provenance (`/api/v1/export/document-text`).
+2. `foia-request-log-export/1` — FC-03 rows without requester name/organization/raw cells (`/api/v1/export/request-log-rows`).
+3. `foia-log-coverage/1` — per log/agency/component/year coverage in the exact field shape of Send_FOIA_Log_Requests' `sfl-log-coverage-proposal-1` (`/api/v1/export/log-coverage/{manifest.json,coverage.jsonl}`). SFL's validator accepts it once it adds the version string `foia-log-coverage/1`; `fc14_review` stays `absent`.
+4. `POST /api/v1/ingest/sfl-bundle` — bearer `FOIA_INGEST_TOKEN` (≥24 chars; 404 when unset). Verifies `sfl-interchange/1`, stages to an inbox, returns deterministic acks; `main.py import-sfl-inbox` imports under the writer lock (migration 11). On Render free the inbox is ephemeral (the ack says so).
+5. Every manifest names `producer.commit` (`FOIA_BUILD_COMMIT` → `RENDER_GIT_COMMIT` → `GITHUB_SHA` → git; `null` if unpinned). FC-13 manifest adds `contract_revision: "1.1"`.
+Details: [EXPORT_EXTENSIONS.md](EXPORT_EXTENSIONS.md).
+
+| Unit | PR | Level | Pending |
+| --- | --- | --- | --- |
+| FC-08 | #76 | relations without merging, related versions UI, relations export | agency reorganizations, tracking-ID joins, real corpus run |
+| FC-12 / FC-14 | #77 | `/coverage`, `/api/v1/coverage`; draft corpus review generator | real data; owner FC-14 acceptance |
+| FC-05 / FC-06 / FC-07 | #78 | backfill windows, sitemap/JSON adapters, content-type safety | live samples; downloader wiring |
+| FC-09 / FC-10 / FC-11 | #79 | acquisition queue, leased work queue, migration gate | crawler wiring after single-writer acceptance; FC-11 needs spend approval |
+
+All FC PRs this round are recorded as `contributingPrs` in `registry/prs.json`: fixture-level code is not acceptance.
+
+Migrations: 11 SFL interchange, 12 document relations, 13 acquisition/work queues.
+
 ## Integration checkpoint — 2026-11-15
 
 **Open PRs at checkpoint:** only the registry/handoff refresh PR that carries this document. `python -m unittest discover -s tests` on `main` after #73: **385 tests, OK** (Python 3.12 venv). Status levels below follow AGENTS.md: *code complete / integrated* is not *data synchronized, deployed, or real coverage validated*.
@@ -93,7 +116,7 @@ The Docker web service now starts without B2 (#69): the entrypoint no longer cra
 - Live source access: FC-01/02 census and enumeration, FC-03 official logs and FC-04 MuckRock sampling require bounded live runs that respect robots, rate limits and terms.
 
 ## Next unblocked implementation work
-- **Without access or spend:** FC-06 adaptive adapters (fixtures), FC-07 content-type completeness, FC-08 cross-source identity/dedupe (unblocks FC-13 completion), FC-09 metadata-first growth, FC-12 completeness dashboard using the FC-01 inventory and FC-02 coverage report.
+- **Without access or spend:** wire FC-07 bundle expansion and FC-09 metadata-only mode into the downloader/engine behind flags; FC-08 agency-reorganization joins; downstream (SFL) adds `foia-log-coverage/1` to its supported versions and pins a producer commit.
 - **With B2 credentials:** read-only audit → `restore-db` to a separate file → dispatch #47 promotion only after monotonic proof → enable the gated refresh (#41) and observe two serialized runs.
 - **With later explicit paid-tier approval:** FC-11 storage/search migration.
 
@@ -108,6 +131,11 @@ The Docker web service now starts without B2 (#69): the entrypoint no longer cra
     python main.py ingest-request-log <local-log.csv> --source-url <official URL> --agency <slug>
     python main.py export-catalog <output-dir>
     python main.py ingestion-status
+    python main.py export-dataset {document-text|request-log-rows|document-relations} <dir>
+    python main.py export-log-coverage <dir>
+    python main.py import-sfl-inbox
+    python main.py analyze-identity
+    python main.py corpus-review --output corpus-review.json
 
 B2 commands require correctly configured server-side environment/secrets and must never print keys. Do not initiate a live archiving wave without an exclusive writer, actual remaining capacity and verified checkpoint.
 
