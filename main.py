@@ -280,6 +280,31 @@ def ingest_request_log(
                f"{len(log.rows)} rows, {len(log.failures)} queued failures")
 
 
+@app.command("export-catalog")
+def export_catalog(
+    output_dir: str = typer.Argument(..., help="Directory for manifest.json and records-*.jsonl."),
+    config: str = "config/settings.yaml",
+):
+    """FC-13: write a versioned catalog snapshot with per-file SHA-256 (read-only)."""
+    import sqlite3
+    from pathlib import Path
+    from foia_archive.export_contract import verify_snapshot, write_snapshot
+
+    cfg = load_config(config)
+    db_path = Path(cfg.storage.get("db_path"))
+    conn = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        manifest = write_snapshot(conn, Path(output_dir))
+    finally:
+        conn.close()
+    ok, problems = verify_snapshot(Path(output_dir))
+    if not ok:
+        raise typer.Exit(code=1)
+    typer.echo(f"Exported {manifest['counts']['records']} records "
+               f"({manifest['snapshot_id']}) in {len(manifest['files'])} files")
+
+
 @app.command()
 def daemon(config: str = "config/settings.yaml"):
     """Run continuous crawler."""

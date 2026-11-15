@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 from xml.sax.saxutils import escape
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -26,6 +26,12 @@ from foia_archive.archive_storage import (
 )
 from foia_archive.archive_status import database_present, resolve_web_database
 from foia_archive.database_backup import list_database_backups
+from foia_archive.export_contract import (
+    ExportCursorError,
+    export_manifest,
+    export_page,
+    load_schema,
+)
 from foia_archive.incident_ledger import list_incidents
 from foia_archive.storage import (
     SORT_ORDERS,
@@ -389,6 +395,69 @@ async def healthz():
         "schema_version": schema_version,
         "archive": ARCHIVE_STATUS.public(),
     }
+
+
+def _export_rate_per_minute() -> int:
+    try:
+        return max(1, min(6000, int(os.getenv("FOIA_EXPORT_RATE_PER_MINUTE") or 120)))
+    except ValueError:
+        return 120
+
+
+_EXPORT_RATE: dict = {}
+
+
+def _export_rate_limited(request: Request) -> Optional[JSONResponse]:
+    """Per-client fixed-window limit for the research export API (FC-13)."""
+    now = time.monotonic()
+    client = request.client.host if request.client else "unknown"
+    window, count = _EXPORT_RATE.get(client, (now, 0))
+    if now - window >= 60:
+        window, count = now, 0
+    if count >= _export_rate_per_minute():
+        retry = max(1, int(60 - (now - window)))
+        return JSONResponse({"detail": "Export rate limit exceeded"}, status_code=429,
+                            headers={"Retry-After": str(retry)})
+    if len(_EXPORT_RATE) > 10000:  # bound memory under many clients
+        _EXPORT_RATE.clear()
+    _EXPORT_RATE[client] = (window, count + 1)
+    return None
+
+
+@app.get("/api/v1/export/schema")
+async def export_schema(request: Request):
+    return _export_rate_limited(request) or JSONResponse(load_schema())
+
+
+@app.get("/api/v1/export/manifest")
+async def export_manifest_endpoint(request: Request):
+    limited = _export_rate_limited(request)
+    if limited:
+        return limited
+    conn = get_db()
+    try:
+        manifest = export_manifest(conn)
+    finally:
+        conn.close()
+    manifest["archive"] = ARCHIVE_STATUS.public()
+    return JSONResponse(manifest)
+
+
+@app.get("/api/v1/records")
+async def export_records(request: Request, cursor: Optional[str] = None, limit: int = 100):
+    limited = _export_rate_limited(request)
+    if limited:
+        return limited
+    conn = get_db()
+    try:
+        page = export_page(conn, cursor=cursor, limit=limit)
+    except ExportCursorError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        conn.close()
+    return JSONResponse(page)
 
 
 @app.get("/admin", response_class=HTMLResponse)
