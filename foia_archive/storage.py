@@ -194,6 +194,11 @@ def _migration_9_request_logs(conn: sqlite3.Connection) -> None:
     create_tables(conn)
 
 
+def _migration_10_third_party_releases(conn: sqlite3.Connection) -> None:
+    from .muckrock_adapter import create_tables
+    create_tables(conn)
+
+
 MIGRATIONS: Tuple[
     Tuple[int, str, Callable[[sqlite3.Connection], None]],
     ...,
@@ -207,6 +212,7 @@ MIGRATIONS: Tuple[
     (7, "durable ingestion receipts", _migration_7_ingestion_receipts),
     (8, "source enumeration cursors", _migration_8_source_enumeration),
     (9, "request log normalization", _migration_9_request_logs),
+    (10, "third-party release provenance", _migration_10_third_party_releases),
 )
 
 

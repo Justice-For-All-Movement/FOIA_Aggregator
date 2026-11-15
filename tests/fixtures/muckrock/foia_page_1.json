@@ -1,0 +1,37 @@
+{
+  "_comment": "Synthetic fixture in the shape of MuckRock api_v1/foia pages for FC-04 tests. Not real requests or files.",
+  "count": 3,
+  "next": "https://www.muckrock.com/api_v1/foia/?format=json&page=2&status=done",
+  "previous": null,
+  "results": [
+    {
+      "id": 1001,
+      "title": "Fixture request: building maintenance contracts",
+      "slug": "fixture-building-maintenance-contracts",
+      "status": "done",
+      "agency": 77,
+      "tracking_id": "EX-2024-0001",
+      "datetime_submitted": "2023-10-01T12:00:00Z",
+      "datetime_done": "2023-11-15T12:00:00Z",
+      "absolute_url": "/foi/example-dept-77/fixture-building-maintenance-contracts-1001/",
+      "communications": [
+        {"response": false, "datetime": "2023-10-01T12:00:00Z",
+         "files": [{"ffile": "https://cdn.muckrock.com/foia_files/requester-attachment.pdf", "title": "Requester attachment"}]},
+        {"response": true, "datetime": "2023-11-15T12:00:00Z",
+         "files": [
+           {"ffile": "https://cdn.muckrock.com/foia_files/2023/11/15/contracts.pdf", "title": "Responsive contracts", "datetime": "2023-11-15T12:00:00Z"},
+           {"ffile": "https://foia.example.gov/docs/ex-2024-0001.pdf", "title": "Mirror of official copy"}
+         ]}
+      ]
+    },
+    {
+      "id": 1002,
+      "title": "Fixture request: no responsive records",
+      "slug": "fixture-no-responsive-records",
+      "status": "done",
+      "agency": {"id": 78, "name": "Example Bureau"},
+      "absolute_url": "https://www.muckrock.com/foi/example-bureau-78/fixture-no-responsive-records-1002/",
+      "communications": [{"response": true, "datetime": "2024-01-02T00:00:00Z", "files": []}]
+    }
+  ]
+}

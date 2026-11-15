@@ -1,0 +1,25 @@
+{
+  "_comment": "Synthetic fixture in the shape of MuckRock api_v1/foia pages for FC-04 tests. Not real requests or files.",
+  "count": 3,
+  "next": null,
+  "previous": "https://www.muckrock.com/api_v1/foia/?format=json&page=1&status=done",
+  "results": [
+    {
+      "id": 1003,
+      "title": "Fixture request: training manuals",
+      "slug": "fixture-training-manuals",
+      "status": "done",
+      "agency": 77,
+      "absolute_url": "/foi/example-dept-77/fixture-training-manuals-1003/",
+      "communications": [
+        {"response": true, "datetime": "2024-02-01T00:00:00Z",
+         "files": [
+           {"ffile": "https://s3.amazonaws.com/muckrock/foia_files/manual.pdf", "title": "Manual"},
+           {"ffile": "https://s3.amazonaws.com/other-bucket/x.pdf", "title": "Foreign bucket"},
+           {"ffile": "http://cdn.muckrock.com/insecure.pdf", "title": "Plain HTTP"},
+           {"ffile": "https://evil.example/payload.pdf", "title": "Foreign host"}
+         ]}
+      ]
+    }
+  ]
+}
