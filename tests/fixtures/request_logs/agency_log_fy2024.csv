@@ -1,0 +1,9 @@
+Synthetic FOIA log fixture for FC-03 tests (not real requests)
+Fiscal Year 2024
+Request Number,Date Received,Date Closed,Subject of Request,Final Disposition,Requester Organization,Requester,Exemptions Cited,Reading Room Link
+EX-2024-0001,10/02/2023,11/15/2023,Contracts for building maintenance,Full Grant,Example News,Jane Q. Public,,https://foia.example.gov/docs/ex-2024-0001.pdf
+EX-2024-0002,2023-10-05,2023-10-04,Emails about the annual budget,Partial Grant,,John Doe,"b(5), b(6)",
+EX-2024-0003,13/45/2023,,Visitor logs,Pending,Example University,,,
+,,,,,,,,
+,10/09/2023,,,No Records,,,,
+"EX-2024-0005","October 12, 2023","Dec 1, 2023","=HYPERLINK(""http://x"")",Denied,,,b(7)(E),

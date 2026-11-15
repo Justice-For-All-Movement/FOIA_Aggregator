@@ -12,3 +12,4 @@ pypdfium2
 pytesseract
 Pillow
 fonttools
+openpyxl
