@@ -397,6 +397,27 @@ def analyze_identity_command(config: str = "config/settings.yaml"):
             conn.close()
 
 
+@app.command("corpus-review")
+def corpus_review(
+    output: str = typer.Option("corpus-review.json", "--output"),
+    census_json: str | None = typer.Option(None, "--census-json"),
+    config: str = "config/settings.yaml",
+):
+    """FC-14: write the stratified corpus review evidence (read-only; status stays draft)."""
+    import json
+    from pathlib import Path
+    from foia_archive.completeness import build_corpus_review
+    census = json.loads(Path(census_json).read_text()) if census_json else None
+    conn = _read_only_connection(config)
+    try:
+        review = build_corpus_review(conn, census)
+    finally:
+        conn.close()
+    Path(output).write_text(json.dumps(review, indent=2, sort_keys=True))
+    for gate in review["gates"]:
+        typer.echo(f"{gate['result']:>7}  {gate['id']}: {gate['description']}")
+
+
 @app.command()
 def daemon(config: str = "config/settings.yaml"):
     """Run continuous crawler."""

@@ -865,3 +865,7 @@ button:hover, .button:hover {
   background: var(--amber-soft);
   color: var(--ink);
 }
+
+.coverage-table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+.coverage-table th, .coverage-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.coverage-table td + td, .coverage-table th + th { text-align: right; }

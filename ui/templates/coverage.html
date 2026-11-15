@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Coverage and completeness — FOIA Aggregator{% endblock %}
+{% block description %}What this archive has found, preserved and indexed, and what remains unknown.{% endblock %}
+{% block content %}
+<section class="record-header">
+  <p class="eyebrow">Coverage and completeness</p>
+  <h1>What the archive knows — and what it does not</h1>
+  <p class="record-subtitle">{{ c.unknowns.note }}</p>
+</section>
+
+<div class="detail-grid">
+  <div>
+    <section class="panel">
+      <h2>Records</h2>
+      <dl class="metadata">
+        <div><dt>Cataloged</dt><dd>{{ "{:,}".format(c.records.cataloged) }}</dd></div>
+        <div><dt>Preserved copies</dt><dd>{{ "{:,}".format(c.records.archived) }}</dd></div>
+        <div><dt>Remote only (not preserved)</dt><dd>{{ "{:,}".format(c.records.metadata_only) }}</dd></div>
+        <div><dt>Preserved bytes</dt><dd>{{ c.records.archived_bytes | filesize }}</dd></div>
+        <div><dt>Text indexed</dt><dd>{{ "{:,}".format(c.records.text_indexed) }}</dd></div>
+        <div><dt>Indexed via OCR</dt><dd>{{ "{:,}".format(c.records.ocr_indexed) }}</dd></div>
+        <div><dt>No published date</dt><dd>{{ "{:,}".format(c.unknowns.records_without_published_date) }}</dd></div>
+      </dl>
+    </section>
+
+    <section class="panel">
+      <h2>By agency</h2>
+      {% if c.by_agency %}
+      <table class="coverage-table">
+        <thead><tr><th>Agency</th><th>Cataloged</th><th>Preserved</th><th>Text indexed</th><th>Years</th></tr></thead>
+        <tbody>
+        {% for row in c.by_agency[:50] %}
+          <tr><td>{{ row.agency }}</td><td>{{ row.cataloged }}</td><td>{{ row.archived }}</td>
+              <td>{{ row.text_indexed }}</td><td>{{ row.oldest_year or '?' }}–{{ row.newest_year or '?' }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}<p class="results-meta">No records are loaded.</p>{% endif %}
+    </section>
+
+    <section class="panel">
+      <h2>By published year</h2>
+      {% if c.by_year %}
+      <table class="coverage-table">
+        <thead><tr><th>Year</th><th>Cataloged</th><th>Preserved</th></tr></thead>
+        <tbody>{% for row in c.by_year %}<tr><td>{{ row.year }}</td><td>{{ row.cataloged }}</td><td>{{ row.archived }}</td></tr>{% endfor %}</tbody>
+      </table>
+      {% else %}<p class="results-meta">No records are loaded.</p>{% endif %}
+    </section>
+  </div>
+
+  <aside>
+    <section class="panel">
+      <h2>Sources</h2>
+      <dl class="metadata">
+        <div><dt>Known sources</dt><dd>{{ c.sources.known }}</dd></div>
+        <div><dt>Official / third-party</dt><dd>{{ c.sources.official }} / {{ c.sources.third_party }}</dd></div>
+        <div><dt>Verified reachable</dt><dd>{{ c.sources.verified_active }}</dd></div>
+        <div><dt>Unverified (unknown)</dt><dd>{{ c.sources.unknown_or_unverified }}</dd></div>
+        <div><dt>Blocked (not evaded)</dt><dd>{{ c.sources.blocked }}</dd></div>
+        <div><dt>Fully enumerated</dt><dd>{{ c.sources.fully_enumerated }}</dd></div>
+        <div><dt>Never successfully crawled</dt><dd>{{ c.sources.never_successfully_crawled }}</dd></div>
+        <div><dt>Last verified crawl</dt><dd>{{ c.sources.last_verified_crawl or 'None recorded' }}</dd></div>
+        <div><dt>Intelligence Community elements with a source</dt>
+            <dd>{{ c.intelligence_community.with_source }} of {{ c.intelligence_community.expected }}</dd></div>
+      </dl>
+    </section>
+    <section class="panel">
+      <h2>Machine-readable</h2>
+      <p class="results-meta"><a href="/api/v1/coverage">/api/v1/coverage</a> returns these denominators as JSON.</p>
+    </section>
+  </aside>
+</div>
+{% endblock %}

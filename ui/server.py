@@ -35,6 +35,7 @@ from foia_archive.export_extensions import (
     log_coverage_files,
 )
 from foia_archive import sfl_interchange
+from foia_archive.completeness import compute_completeness
 from foia_archive.identity import related_versions
 from foia_archive.export_contract import (
     ExportCursorError,
@@ -619,6 +620,35 @@ async def admin_dashboard(
             ),
         ),
     )
+
+
+_COVERAGE_CACHE = {"updated": 0.0, "path": None, "data": None}
+
+
+def _coverage() -> dict:
+    now = time.monotonic()
+    if (_COVERAGE_CACHE["data"] is not None and _COVERAGE_CACHE["path"] == str(DB_PATH)
+            and now - _COVERAGE_CACHE["updated"] < 300):
+        return _COVERAGE_CACHE["data"]
+    conn = get_db()
+    try:
+        data = compute_completeness(conn)
+    finally:
+        conn.close()
+    data["archive"] = ARCHIVE_STATUS.public()
+    _COVERAGE_CACHE.update(updated=now, path=str(DB_PATH), data=data)
+    return data
+
+
+@app.get("/coverage", response_class=HTMLResponse)
+async def coverage_page(request: Request):
+    return templates.TemplateResponse(request=request, name="coverage.html",
+                                      context=_template_context(request, c=_coverage()))
+
+
+@app.get("/api/v1/coverage")
+async def coverage_api(request: Request):
+    return _export_rate_limited(request) or JSONResponse(_coverage())
 
 
 @app.get("/about", response_class=HTMLResponse)
