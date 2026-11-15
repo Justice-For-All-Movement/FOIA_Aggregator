@@ -8,6 +8,8 @@ from unittest.mock import patch
 from docx import Document
 from pypdf import PdfWriter
 
+from foia_archive.storage import MIGRATIONS
+LATEST_SCHEMA = MIGRATIONS[-1][0]
 from foia_archive.storage import (
     get_connection,
     get_document_text,
@@ -58,7 +60,7 @@ class FullTextSearchTests(unittest.TestCase):
         )
 
     def test_schema_migration_creates_fts5_tables(self):
-        self.assertEqual(get_schema_version(self.conn), 7)
+        self.assertEqual(get_schema_version(self.conn), LATEST_SCHEMA)
         names = {
             row["name"]
             for row in self.conn.execute(

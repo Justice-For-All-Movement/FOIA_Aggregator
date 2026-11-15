@@ -184,6 +184,11 @@ def _migration_7_ingestion_receipts(conn: sqlite3.Connection) -> None:
     create_tables(conn)
 
 
+def _migration_8_source_enumeration(conn: sqlite3.Connection) -> None:
+    from .enumeration import create_tables
+    create_tables(conn)
+
+
 MIGRATIONS: Tuple[
     Tuple[int, str, Callable[[sqlite3.Connection], None]],
     ...,
@@ -195,6 +200,7 @@ MIGRATIONS: Tuple[
     (5, "document full text search", _migration_5_full_text_search),
     (6, "text extraction method", _migration_6_extraction_method),
     (7, "durable ingestion receipts", _migration_7_ingestion_receipts),
+    (8, "source enumeration cursors", _migration_8_source_enumeration),
 )
 
 

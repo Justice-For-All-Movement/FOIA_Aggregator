@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from foia_archive.storage import MIGRATIONS
+LATEST_SCHEMA = MIGRATIONS[-1][0]
 from foia_archive import models
 from foia_archive.storage import (
     associate_document_source,
@@ -54,8 +56,8 @@ class DatabaseDurabilityTests(unittest.TestCase):
         finally:
             conn.close()
 
-        self.assertEqual([row["version"] for row in rows], [1, 2, 3, 4, 5, 6, 7])
-        self.assertEqual(version, 7)
+        self.assertEqual([row["version"] for row in rows], list(range(1, LATEST_SCHEMA + 1)))
+        self.assertEqual(version, LATEST_SCHEMA)
 
     def test_version_5_full_text_rows_gain_native_extraction_method(self):
         conn = sqlite3.connect(self.db_path)
@@ -142,7 +144,7 @@ class DatabaseDurabilityTests(unittest.TestCase):
             conn.close()
 
         self.assertEqual(row["extraction_method"], "native_text")
-        self.assertEqual(version, 7)
+        self.assertEqual(version, LATEST_SCHEMA)
 
     def test_expected_query_indexes_are_created(self):
         init_db(self.db_path, self.files_dir)
@@ -264,7 +266,7 @@ class DatabaseDurabilityTests(unittest.TestCase):
             conn.close()
 
         self.assertEqual(count, 0)
-        self.assertEqual(version, 7)
+        self.assertEqual(version, LATEST_SCHEMA)
 
 
 class DocumentSourceRelationshipTests(unittest.TestCase):
