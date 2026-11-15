@@ -21,5 +21,17 @@ services:
         sync: false
       - key: B2_APPLICATION_KEY
         sync: false
+      # Optional when the B2 key is scoped to exactly one bucket.
+      - key: B2_BUCKET
+        sync: false
+      - key: B2_REGION
+        sync: false
+      - key: B2_ENDPOINT_URL
+        sync: false
+      # Admin dashboard stays disabled (404) until this is set.
+      - key: FOIA_ADMIN_PASSWORD
+        sync: false
+      - key: FOIA_PUBLIC_BASE_URL
+        sync: false
       - key: B2_MAX_ARCHIVE_BYTES
         value: "8500000000"

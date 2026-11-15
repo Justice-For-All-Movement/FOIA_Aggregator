@@ -24,6 +24,7 @@ from foia_archive.archive_storage import (
     LocalArchiveStorage,
     get_archive_storage,
 )
+from foia_archive.archive_status import database_present, resolve_web_database
 from foia_archive.database_backup import list_database_backups
 from foia_archive.incident_ledger import list_incidents
 from foia_archive.storage import (
@@ -41,8 +42,11 @@ from foia_archive.storage import (
 from foia_archive.utils import load_config
 
 config = load_config("config/settings.yaml")
-DB_PATH = Path(config.storage.get("db_path"))
+CONFIGURED_DB_PATH = Path(config.storage.get("db_path"))
 FILES_DIR = Path(config.storage.get("files_dir"))
+# Start cleanly without B2: serve an empty placeholder index (never at the
+# configured path, so a later verified bootstrap is not blocked).
+DB_PATH, ARCHIVE_STATUS = resolve_web_database(config)
 init_db(DB_PATH, FILES_DIR)
 
 app = FastAPI(title="FOIA Aggregator")
@@ -198,6 +202,7 @@ def _canonical_url(request: Request) -> str:
 def _template_context(request: Request, **extra):
     return {
         "canonical_url": _canonical_url(request),
+        "archive_status": ARCHIVE_STATUS.public(),
         **extra,
     }
 
@@ -276,7 +281,21 @@ async def sitemap_xml(request: Request):
     )
 
 
+def _adopt_restored_database() -> None:
+    """Switch from the placeholder once a verified snapshot/writer DB appears."""
+    global DB_PATH, ARCHIVE_STATUS
+    if not ARCHIVE_STATUS.serving_placeholder_index:
+        return
+    if not database_present(CONFIGURED_DB_PATH):
+        return
+    path, status = resolve_web_database(config)
+    if path == CONFIGURED_DB_PATH:
+        init_db(path, FILES_DIR)
+        DB_PATH, ARCHIVE_STATUS = path, status
+
+
 def get_db() -> sqlite3.Connection:
+    _adopt_restored_database()
     return get_connection(DB_PATH)
 
 
@@ -363,9 +382,12 @@ async def healthz():
         ) from exc
     finally:
         conn.close()
+    # The web process is healthy without B2; archive connectivity is reported
+    # separately so a heartbeat is never mistaken for a loaded archive.
     return {
         "status": "ok",
         "schema_version": schema_version,
+        "archive": ARCHIVE_STATUS.public(),
     }
 
 
@@ -471,6 +493,11 @@ async def archived_document(document_id: int):
 
     if row is None:
         raise HTTPException(status_code=404, detail="Document not found")
+    if ARCHIVE_STATUS.reason == "b2_credentials_missing" and row["storage_backend"] == "b2":
+        raise HTTPException(
+            status_code=503,
+            detail="Archived copies are unavailable: the document archive is not connected.",
+        )
     if row["download_status"] != "downloaded":
         raise HTTPException(status_code=404, detail="Document is not archived")
 

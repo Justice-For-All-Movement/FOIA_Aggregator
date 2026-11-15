@@ -227,3 +227,34 @@ For the current SQLite architecture, run **one crawler** and preferably one web 
 Do not place B2 or FOIA.gov secrets in the image, repository, logs, or presentation materials.
 
 Rotate any B2 application key that was exposed during development after the deployment and acceptance work is complete.
+
+## 10. Deploying before B2 is connected (Render free web)
+
+The Docker web service starts cleanly without any Backblaze B2 settings.
+`docker-entrypoint.sh` skips (or survives a failed) snapshot restore, the app
+serves an **empty placeholder index** at `<FOIA_DB_PATH stem>.unconnected.db`
+(never at `FOIA_DB_PATH`, so a later verified bootstrap is not blocked), every
+page shows an "Archive not connected" notice, and `/healthz` stays `200` with
+an `archive` object (`archive_connected`, `reason`, `bootstrap_result`). Once a
+verified snapshot appears at `FOIA_DB_PATH` the running process adopts it; on
+Render a redeploy after entering the secrets performs the restore. Set
+`FOIA_REQUIRE_ARCHIVE=true` to make the container refuse to start without a
+snapshot instead.
+
+Start command: the image `ENTRYPOINT` (`/app/docker-entrypoint.sh`) followed
+by `CMD` `python -m uvicorn ui.server:app --host 0.0.0.0 --port ${PORT:-8000}`
+(Render injects `PORT`). Health check path: `/healthz`.
+
+| Variable | Required? | Purpose |
+| --- | --- | --- |
+| `FOIA_STORAGE_BACKEND` | set in render.yaml (`b2`) | Archive backend; `local` for development. |
+| `FOIA_BOOTSTRAP_DB_FROM_B2` | set (`true`) | Restore newest verified B2 SQLite snapshot when the DB is absent. |
+| `FOIA_DB_PATH`, `FOIA_FILES_DIR` | set | SQLite index and staging/local file paths (`/data/...`). |
+| `B2_KEY_ID`, `B2_APPLICATION_KEY` | required for a connected archive | Read-scoped B2 key for snapshot restore and signed download links. Without them the site runs "not connected". |
+| `B2_BUCKET` | optional | Needed only if the key is not scoped to exactly one bucket. |
+| `B2_REGION`, `B2_ENDPOINT_URL` | optional | Either one is enough (the other is derived); otherwise discovered from the key. |
+| `B2_MAX_ARCHIVE_BYTES` | set (`8500000000`) | Document archive cap. |
+| `FOIA_ADMIN_PASSWORD` | optional | Enables `/admin` (HTTP Basic, user `FOIA_ADMIN_USERNAME`); `/admin` returns 404 while unset. |
+| `FOIA_PUBLIC_BASE_URL` | optional | Canonical origin for share metadata, robots and sitemap. |
+| `FOIA_AUTONOMOUS_REFRESH_ENABLED` | set (`false`) | Informational on the web service; the web process never crawls or publishes checkpoints. |
+| `FOIA_REQUIRE_ARCHIVE` | optional | `true` = fail startup when no snapshot is available. |

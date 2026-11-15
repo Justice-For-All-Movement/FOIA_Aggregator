@@ -31,6 +31,12 @@
 </header>
 
 <main class="page">
+  {% if archive_status and not archive_status.archive_connected %}
+  <div class="archive-notice" role="status">
+    <strong>Archive not connected.</strong> {{ archive_status.message }}
+    Original source links remain the authoritative copies.
+  </div>
+  {% endif %}
   {% block content %}{% endblock %}
   <footer class="footer">
     Aggregated from official federal public-records sources. Every record retains its original source link and archive provenance.
