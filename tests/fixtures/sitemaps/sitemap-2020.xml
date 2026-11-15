@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://foia.example.gov/docs/2019-b.pdf</loc></url>
+  <url><loc>https://foia.example.gov/docs/2020-a.pdf</loc></url>
+  <url><loc>https://other.example/not-ours.pdf</loc></url>
+</urlset>
