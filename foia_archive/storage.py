@@ -209,6 +209,13 @@ def _migration_12_document_relations(conn: sqlite3.Connection) -> None:
     create_tables(conn)
 
 
+def _migration_13_acquisition_and_work_queues(conn: sqlite3.Connection) -> None:
+    from .acquisition import create_tables as create_acquisition
+    from .work_queue import create_tables as create_work
+    create_acquisition(conn)
+    create_work(conn)
+
+
 MIGRATIONS: Tuple[
     Tuple[int, str, Callable[[sqlite3.Connection], None]],
     ...,
@@ -225,6 +232,7 @@ MIGRATIONS: Tuple[
     (10, "third-party release provenance", _migration_10_third_party_releases),
     (11, "send-foia-log-requests interchange", _migration_11_sfl_interchange),
     (12, "cross-source identity relations", _migration_12_document_relations),
+    (13, "acquisition and work queues", _migration_13_acquisition_and_work_queues),
 )
 
 
