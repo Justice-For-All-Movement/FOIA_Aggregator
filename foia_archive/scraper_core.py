@@ -51,6 +51,7 @@ from .storage import (
     upsert_document_text,
 )
 from .text_extraction import OCRSettings, extract_document_text
+from . import published_window as pw
 from .utils import Config, clean_filename, logger
 
 
@@ -321,7 +322,34 @@ def _published_date_from_context(anchor) -> Optional[str]:
     unique_time_candidates = set(time_candidates)
     if len(unique_time_candidates) == 1:
         return next(iter(unique_time_candidates))
-    return None
+    return _labeled_text_date(container.get_text(" ", strip=True))
+
+
+_TEXT_DATE = (
+    r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}"
+    r"|\d{1,2}/\d{1,2}/\d{4}|\d{4}-\d{2}-\d{2}"
+)
+_LABELED_DATE_RE = re.compile(
+    r"\b(?:date\s+)?(?:posted|released|published|publication\s+date|release\s+date)"
+    r"(?:\s+on)?\s*[:\-\u2013]?\s*(" + _TEXT_DATE + r")",
+    re.IGNORECASE,
+)
+
+
+def _labeled_text_date(text: str) -> Optional[str]:
+    """A date explicitly labeled posted/released/published in listing text.
+
+    Unlabeled dates (often the document's own date) are deliberately ignored.
+    Exactly one distinct labeled date is required.
+    """
+    found = set()
+    for match in _LABELED_DATE_RE.finditer(text or ""):
+        raw = re.sub(r"^([A-Za-z]{3})[A-Za-z]*\.?", lambda m: m.group(1), match.group(1).strip())
+        raw = re.sub(r"\s+", " ", raw)
+        normalized = _normalize_published_date(raw)
+        if normalized:
+            found.add(normalized)
+    return next(iter(found)) if len(found) == 1 else None
 
 
 def _parse_utc_timestamp(value: Optional[str]) -> Optional[datetime]:
@@ -1335,8 +1363,14 @@ def _candidate_counts_toward_source_limit(
     url: str,
     *,
     dry_run: bool,
+    config: Optional[Config] = None,
+    published_date: Optional[str] = None,
 ) -> bool:
     """Return whether a candidate should consume the per-source document quota.
+
+    Under an active published-date window, candidates the window does not
+    admit never consume quota (their metadata is recorded, nothing is
+    downloaded).
 
     New records always count. In live mode, previously discovered records also
     count when they are not yet successfully archived. Already archived records
@@ -1348,6 +1382,11 @@ def _candidate_counts_toward_source_limit(
         return False
 
     existing = get_document_by_url(conn, canonical)
+    window = pw.window_from_config(config) if config is not None else None
+    if window is not None:
+        effective = published_date or (existing["published_date"] if existing is not None else None)
+        if not window.admits(effective):
+            return False
     if existing is None:
         return True
     if dry_run:
@@ -1446,6 +1485,18 @@ def _process_document_candidate(
             discovered_at=datetime.utcnow().isoformat(),
             published_date=published_date,
         )
+
+    window = pw.window_from_config(config)
+    if window is not None:
+        effective_date = published_date or (
+            existing["published_date"] if existing is not None else None
+        )
+        verdict = window.classify(effective_date)
+        admitted = window.admits(effective_date)
+        pw.record(config, verdict, admitted=admitted)
+        if not admitted:
+            # Metadata recorded above; binary download is outside the window.
+            return is_new
 
     if dry_run:
         return is_new
@@ -1721,6 +1772,8 @@ def _crawl_pal_reading_room(
                     conn,
                     candidate_url,
                     dry_run=dry_run,
+                    config=config,
+                    published_date=folder.published_date,
                 )
                 if (
                     max_docs is not None
@@ -1847,6 +1900,7 @@ def _crawl_reading_room_with_connection(
         int(float(config.crawler.get("page_max_size_mb", 5)) * 1024 * 1024),
     )
 
+    window = pw.window_from_config(config)
     frontier: Deque[CrawlTarget] = deque(
         [
             CrawlTarget(
@@ -1898,6 +1952,8 @@ def _crawl_reading_room_with_connection(
                         conn,
                         final_url,
                         dry_run=dry_run,
+                        config=config,
+                        published_date=target.published_date,
                     )
                     if (
                         max_docs is not None
@@ -1970,7 +2026,14 @@ def _crawl_reading_room_with_connection(
             if response is not None:
                 _close_response(response)
 
-        for link in extract_document_links(html, final_url):
+        page_links = extract_document_links(html, final_url)
+        if window is not None:
+            # Stable sort: in-window first, then unknown, then out-of-window.
+            page_links = sorted(
+                page_links,
+                key=lambda item: pw.priority(window, item.get("published_date")),
+            )
+        for link in page_links:
             url = link["url"]
             if url in seen_documents:
                 continue
@@ -1978,6 +2041,8 @@ def _crawl_reading_room_with_connection(
                 conn,
                 url,
                 dry_run=dry_run,
+                config=config,
+                published_date=link.get("published_date"),
             )
             if (
                 max_docs is not None

@@ -107,6 +107,9 @@ def policy_fingerprint(cfg) -> str:
         'dry_run', 'max_docs_per_source', 'source_limit', 'max_pages_per_source',
         'max_depth', 'max_discovered_docs_per_source')}
     policy['backend'] = cfg.storage.get('backend', 'local')
+    window = cfg.crawler.get('published_window')
+    if window:  # only present when set, so existing fingerprints are unchanged
+        policy['published_window'] = window
     return hashlib.sha256(json.dumps(policy, sort_keys=True).encode()).hexdigest()
 
 

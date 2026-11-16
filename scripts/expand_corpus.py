@@ -71,6 +71,7 @@ def _write_summary(
     target_bytes: int,
     waves_completed: int,
     stop_reason: str,
+    window_stats: dict | None = None,
 ) -> None:
     lines = [
         "## FOIA Aggregator corpus expansion",
@@ -88,6 +89,12 @@ def _write_summary(
         f"- OCR-assisted searchable: **{stats['ocr_records']:,}**",
         "",
     ]
+    if window_stats:
+        lines[-1:-1] = [
+            f"- Published-date window: **{window_stats.get('window')}**",
+            "- Window candidates: "
+            + ", ".join(f"{k}={v}" for k, v in sorted(window_stats.items()) if k != "window"),
+        ]
     output = "\n".join(lines)
     print(output)
     summary_path = (os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
@@ -138,6 +145,7 @@ def main() -> None:
 
         waves_completed = 0
         stop_reason = "maximum waves reached"
+        window_stats: dict = {}
 
         for wave in range(1, max_waves + 1):
             usage_before = backend.usage_summary()
@@ -158,6 +166,7 @@ def main() -> None:
                 stop_reason = "document archive safety cap reached"
                 break
 
+            wave_window: dict = {}
             run_once(
                 config_path=config_path,
                 dry_run=False,
@@ -166,7 +175,13 @@ def main() -> None:
                 ),
                 refresh_metadata_enabled=(wave == 1),
                 backup_enabled=False,  # forced checkpoint follows
+                window_stats_out=wave_window,
             )
+            for key, value in wave_window.items():
+                if key == "window":
+                    window_stats["window"] = value
+                else:
+                    window_stats[key] = window_stats.get(key, 0) + value
             waves_completed += 1
 
             checkpoint = backup_database_to_b2(config, force=True)
@@ -212,6 +227,7 @@ def main() -> None:
             target_bytes=target_total_bytes,
             waves_completed=waves_completed,
             stop_reason=stop_reason,
+            window_stats=window_stats,
         )
 
 
