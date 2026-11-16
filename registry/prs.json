@@ -9,7 +9,7 @@
   ],
   "schemaVersion": 1,
   "roadmapVersion": 2,
-  "observedAt": "2026-11-15T19:42:45.000Z",
+  "observedAt": "2026-11-16T02:11:04.000Z",
   "units": [
     {
       "id": "FA-001",
@@ -239,7 +239,8 @@
       "prs": [],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-04",
       "contributingPrs": [
-        73
+        73,
+        84
       ],
       "dependsOn": [
         "FC-01",
@@ -248,7 +249,7 @@
       ],
       "externalDependencies": [],
       "externalPrerequisites": [],
-      "mappingEvidence": "MuckRock adapter against recorded-shape fixtures (#73, inert). Other third-party archives, live sample and binary dedupe pending."
+      "mappingEvidence": "MuckRock adapter against recorded-shape fixtures (#73, inert). Other third-party archives, live sample and binary dedupe pending. Request-listing mode by date window (MuckRock API v2, token-gated, no requester identity) with /requests and /api/v1/requests (#84); live probe: API BLOCKED by Cloudflare 403 from CI runners, token not yet provided."
     },
     {
       "id": "FC-05",
@@ -257,7 +258,8 @@
       "prs": [],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-05",
       "contributingPrs": [
-        78
+        78,
+        82
       ],
       "dependsOn": [
         "FC-02",
@@ -266,7 +268,7 @@
       ],
       "externalDependencies": [],
       "externalPrerequisites": [],
-      "mappingEvidence": "Date-window backfill plans, oldest-first missed-period queue, verified window spans, per-source release windows (#78, fixtures). Depends on FC-04; live backfill pending."
+      "mappingEvidence": "Date-window backfill plans, oldest-first missed-period queue, verified window spans, per-source release windows (#78, fixtures). Depends on FC-04; live backfill pending. Published-date window crawl (--since-days, dispatch inputs) and bounded live probe (#82); live probe found no detectable published dates on 8 reached listing pages."
     },
     {
       "id": "FC-06",
@@ -420,7 +422,8 @@
       "contributingPrs": [
         72,
         75,
-        76
+        76,
+        83
       ],
       "dependsOn": [
         "FC-03",
@@ -429,7 +432,7 @@
       ],
       "externalDependencies": [],
       "externalPrerequisites": [],
-      "mappingEvidence": "Catalog contract/API/snapshots (#72) plus additive document-text, request-log-row, log-coverage and document-relations exports, producer-commit manifests and the authenticated SFL-12 bundle receiver (#75, #76). Completion depends on FC-08 and FC-12 acceptance."
+      "mappingEvidence": "Catalog contract/API/snapshots (#72) plus additive document-text, request-log-row, log-coverage and document-relations exports, producer-commit manifests and the authenticated SFL-12 bundle receiver (#75, #76). Completion depends on FC-08 and FC-12 acceptance. Additive published_since/published_until filter on /api/v1/records and /recent view (#83)."
     },
     {
       "id": "FC-14",
@@ -463,6 +466,66 @@
     }
   ],
   "pullRequests": [
+    {
+      "id": 5329799095,
+      "number": 84,
+      "title": "FC-04: MuckRock public request listing by date window",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/84",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-16T02:09:08.000Z",
+      "updatedAt": "2026-11-16T02:11:04.000Z",
+      "closedAt": "2026-11-16T02:11:04.000Z",
+      "mergedAt": "2026-11-16T02:11:04.000Z",
+      "headSha": "4bc8bc1d62e910a62efa4e29301244592427a457",
+      "baseRef": "main",
+      "mergeCommitSha": "5280b63ef04deb54439031f06ccdecdd02840bad"
+    },
+    {
+      "id": 5329769337,
+      "number": 83,
+      "title": "Recent releases page (/recent) and published-date filter on /api/v1/records",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/83",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-16T02:05:42.000Z",
+      "updatedAt": "2026-11-16T02:08:35.000Z",
+      "closedAt": "2026-11-16T02:08:35.000Z",
+      "mergedAt": "2026-11-16T02:08:35.000Z",
+      "headSha": "40494685543b5edbe7071227b4a06581a7b66cf1",
+      "baseRef": "main",
+      "mergeCommitSha": "80a9cbd24111692c334f4a603967f3aa3332d9c1"
+    },
+    {
+      "id": 5329766847,
+      "number": 82,
+      "title": "FC-05: published-date window crawl (--since-days) and bounded live probe",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/82",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-16T02:05:25.000Z",
+      "updatedAt": "2026-11-16T02:08:28.000Z",
+      "closedAt": "2026-11-16T02:08:28.000Z",
+      "mergedAt": "2026-11-16T02:08:28.000Z",
+      "headSha": "3aece51d7cf5cf7a9ea86e4d6188abf9a1460370",
+      "baseRef": "main",
+      "mergeCommitSha": "a5799861c31673522bdfe070e3f80feabb9955e7"
+    },
+    {
+      "id": 5329676906,
+      "number": 81,
+      "title": "FC-05: published-date window crawl and live probe",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/81",
+      "state": "closed",
+      "draft": true,
+      "createdAt": "2026-11-16T01:55:03.000Z",
+      "updatedAt": "2026-11-16T02:05:24.000Z",
+      "closedAt": "2026-11-16T02:05:23.000Z",
+      "mergedAt": null,
+      "headSha": "3aece51d7cf5cf7a9ea86e4d6188abf9a1460370",
+      "baseRef": "main",
+      "mergeCommitSha": null
+    },
     {
       "id": 5326428581,
       "number": 79,
