@@ -4,6 +4,24 @@ on:
   schedule:
     - cron: "17 4 * * 2,5"
   workflow_dispatch:
+    inputs:
+      since_days:
+        description: "Archive only documents published in the last N days (blank = no window)"
+        required: false
+        default: "7"
+      published_since:
+        description: "Explicit window start YYYY-MM-DD (overrides since_days)"
+        required: false
+        default: ""
+      published_until:
+        description: "Explicit window end YYYY-MM-DD (optional)"
+        required: false
+        default: ""
+      include_unknown_dates:
+        description: "Also download documents with no detectable published date"
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: foia-b2-single-writer
@@ -99,6 +117,36 @@ jobs:
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as out:
               out.write(f"FOIA_API_KEY={key}\n")
           PY
+
+      - name: Resolve published-date window
+        env:
+          IN_SINCE_DAYS: ${{ github.event_name == 'workflow_dispatch' && inputs.since_days || vars.FOIA_REFRESH_SINCE_DAYS }}
+          IN_SINCE: ${{ inputs.published_since }}
+          IN_UNTIL: ${{ inputs.published_until }}
+          IN_UNKNOWN: ${{ inputs.include_unknown_dates }}
+        run: |
+          set -euo pipefail
+          date_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+          if [ -n "$IN_SINCE" ]; then
+            [[ "$IN_SINCE" =~ $date_re ]] || { echo "published_since must be YYYY-MM-DD"; exit 1; }
+            echo "FOIA_PUBLISHED_SINCE=$IN_SINCE" >> "$GITHUB_ENV"
+          elif [ -n "$IN_SINCE_DAYS" ]; then
+            [[ "$IN_SINCE_DAYS" =~ ^[0-9]{1,4}$ ]] || { echo "since_days must be an integer"; exit 1; }
+            echo "FOIA_PUBLISHED_SINCE_DAYS=$IN_SINCE_DAYS" >> "$GITHUB_ENV"
+          fi
+          if [ -n "$IN_UNTIL" ]; then
+            [[ "$IN_UNTIL" =~ $date_re ]] || { echo "published_until must be YYYY-MM-DD"; exit 1; }
+            echo "FOIA_PUBLISHED_UNTIL=$IN_UNTIL" >> "$GITHUB_ENV"
+          fi
+          if [ -n "$IN_SINCE$IN_SINCE_DAYS$IN_UNTIL" ]; then
+            # Out-of-window candidates never consume quota, so allow more
+            # in-window documents per source; B2 caps still apply in code.
+            echo "FOIA_MAX_DOCS_PER_SOURCE=10" >> "$GITHUB_ENV"
+          fi
+          if [ "$IN_UNKNOWN" = "true" ]; then
+            echo "FOIA_PUBLISHED_INCLUDE_UNKNOWN=true" >> "$GITHUB_ENV"
+          fi
+          echo "Window: since=${IN_SINCE:-} since_days=${IN_SINCE_DAYS:-} until=${IN_UNTIL:-} unknown=${IN_UNKNOWN:-false}"
 
       - name: Run one autonomous refresh wave
         run: python scripts/expand_corpus.py
