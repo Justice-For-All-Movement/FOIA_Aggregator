@@ -27,4 +27,4 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Live probe (informational; never fails the PR on remote outages)
-        run: python scripts/live_probe.py muckrock-discovery muckrock-source
+        run: python scripts/live_probe.py muckrock-discovery muckrock-source window-crawl:7
