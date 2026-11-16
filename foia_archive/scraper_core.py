@@ -51,10 +51,12 @@ from .storage import (
     record_source_pages,
     set_document_date,
     set_remote_content_length,
+    upsert_reading_room,
     update_download_failure,
     update_download_metadata,
     upsert_document_text,
 )
+from .robots import policy_for as robots_policy_for
 from .feeds import discover_feed_urls, looks_like_feed, parse_feed
 from .source_overrides import curated_feeds_for_source
 from .text_extraction import OCRSettings, extract_document_text
@@ -140,6 +142,10 @@ class SourceAccessBlocked(RuntimeError):
     """Public source returned an access-blocking response after compatibility retry."""
 
 
+
+class RobotsDisallowed(SourceAccessBlocked):
+    """robots.txt disallows this URL (or robots.txt was unreachable)."""
+
 class FileTooLarge(ValueError):
     """Raised when a download exceeds the configured archive size limit."""
 
@@ -187,18 +193,29 @@ class HostRateLimiter:
     def __init__(self, delay_seconds: float):
         self.delay_seconds = max(0.0, float(delay_seconds))
         self._last_request: Dict[str, float] = {}
+        self._min_delay: Dict[str, float] = {}
         self._lock = threading.Lock()
 
-    def wait(self, url: str) -> None:
-        """Thread-safe: concurrent callers for one host get distinct slots."""
-        if self.delay_seconds <= 0:
-            return
+    def delay_for(self, url: str) -> float:
+        key = urlparse(url).netloc.lower()
+        return max(self.delay_seconds, self._min_delay.get(key, 0.0))
+
+    def wait(self, url: str, min_delay: Optional[float] = None) -> None:
+        """Thread-safe: concurrent callers for one host get distinct slots.
+
+        ``min_delay`` (e.g. robots.txt Crawl-delay) raises this host's delay.
+        """
         parsed = urlparse(url)
         key = parsed.netloc.lower()
+        if min_delay:
+            self._min_delay[key] = max(self._min_delay.get(key, 0.0), float(min_delay))
+        delay = max(self.delay_seconds, self._min_delay.get(key, 0.0))
+        if delay <= 0:
+            return
         with self._lock:
             now = time.monotonic()
             last = self._last_request.get(key)
-            slot = now if last is None else max(now, last + self.delay_seconds)
+            slot = now if last is None else max(now, last + delay)
             self._last_request[key] = slot
         remaining = slot - now
         if remaining > 0:
@@ -838,6 +855,15 @@ def _browser_fallback_enabled(config: Config) -> bool:
     return bool(value)
 
 
+def _robots_gate(robots, url: str, user_agent: str) -> Optional[float]:
+    """Raise RobotsDisallowed when robots.txt forbids ``url``; return Crawl-delay."""
+    if robots is None:
+        return None
+    if not robots.allowed(url, user_agent):
+        raise RobotsDisallowed(f"robots.txt disallows {url} (not crawled)")
+    return robots.crawl_delay(url, user_agent)
+
+
 def _request_with_safe_redirects(
     url: str,
     headers: dict,
@@ -845,12 +871,15 @@ def _request_with_safe_redirects(
     max_redirects: int,
     rate_limiter: Optional[HostRateLimiter] = None,
     session: Optional[requests.Session] = None,
+    robots=None,
+    robots_user_agent: Optional[str] = None,
 ):
     current_url = url
     for redirect_count in range(max_redirects + 1):
         _validate_public_destination(current_url)
+        crawl_delay = _robots_gate(robots, current_url, robots_user_agent or headers.get("User-Agent", ""))
         if rate_limiter is not None:
-            rate_limiter.wait(current_url)
+            rate_limiter.wait(current_url, min_delay=crawl_delay)
         requester = session.get if session is not None else requests.get
         response = requester(
             current_url,
@@ -1044,6 +1073,8 @@ def _fetch_crawl_resource(
                 max_redirects=max_redirects,
                 rate_limiter=rate_limiter,
                 session=session,
+                robots=robots_policy_for(config),
+                robots_user_agent=config.crawler.get("user_agent"),
             )
             status_code = getattr(response, "status_code", 200)
             if (
@@ -1066,6 +1097,8 @@ def _fetch_crawl_resource(
                     max_redirects=max_redirects,
                     rate_limiter=rate_limiter,
                     session=session,
+                    robots=robots_policy_for(config),
+                    robots_user_agent=config.crawler.get("user_agent"),
                 )
                 status_code = getattr(response, "status_code", 200)
             if status_code == 403:
@@ -1140,7 +1173,9 @@ def _fetch_pal_resource(
         response = None
         try:
             _validate_public_destination(url)
-            rate_limiter.wait(url)
+            crawl_delay = _robots_gate(robots_policy_for(config), url,
+                                       config.crawler.get("user_agent", ""))
+            rate_limiter.wait(url, min_delay=crawl_delay)
             response = session.request(
                 method.upper(),
                 url,
@@ -1260,6 +1295,8 @@ def download_document(
                 max_redirects=max_redirects,
                 rate_limiter=rate_limiter,
                 session=session,
+                robots=robots_policy_for(config),
+                robots_user_agent=config.crawler.get("user_agent"),
             )
             status_code = getattr(response, "status_code", 200)
             if (
@@ -1277,6 +1314,8 @@ def download_document(
                     timeout=timeout,
                     max_redirects=max_redirects,
                     rate_limiter=rate_limiter,
+                    robots=robots_policy_for(config),
+                    robots_user_agent=config.crawler.get("user_agent"),
                 )
                 status_code = getattr(response, "status_code", 200)
             if status_code == 403:
@@ -1443,10 +1482,21 @@ def _head_probe_budget(config: Config) -> int:
     return max(0, min(value, 500))
 
 
+def _head_probe_seconds(config: Config) -> float:
+    """Wall-clock politeness budget for HEADs per source (slow Crawl-delay hosts
+    get fewer probes instead of stalling the run)."""
+    try:
+        value = float(config.crawler.get("max_head_probe_seconds_per_source", 180))
+    except (TypeError, ValueError):
+        return 180.0
+    return max(0.0, min(value, 3600.0))
+
+
 def _begin_date_probes(config: Config, rate_limiter, session) -> None:
     """Per-source state for bounded Last-Modified probes (reset each source)."""
     config.data["_date_probe"] = {
         "remaining": _head_probe_budget(config), "cache": {},
+        "seconds": _head_probe_seconds(config),
         "rate_limiter": rate_limiter, "session": session,
         "probed": 0, "found": 0,
     }
@@ -1467,6 +1517,25 @@ def _parse_http_date(value: Optional[str]) -> Optional[str]:
     if stamp > now + timedelta(days=1) or stamp.year < 1990:
         return None
     return stamp.date().isoformat()
+
+
+def _generated_on_request(last_modified: Optional[str], served_at: Optional[str]) -> bool:
+    """A Last-Modified equal to the response Date is a dynamic page stamp,
+    not a release date (some CMSs stamp every response with "now")."""
+    if not last_modified or not served_at:
+        return False
+    try:
+        modified = parsedate_to_datetime(last_modified)
+        served = parsedate_to_datetime(served_at)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return False
+    if modified is None or served is None:
+        return False
+    if modified.tzinfo is None:
+        modified = modified.replace(tzinfo=timezone.utc)
+    if served.tzinfo is None:
+        served = served.replace(tzinfo=timezone.utc)
+    return abs((served - modified).total_seconds()) <= 120
 
 
 def _head_last_modified(url: str, config: Config, rate_limiter, session=None) -> Optional[str]:
@@ -1496,8 +1565,10 @@ def _head_probe(url: str, config: Config, rate_limiter, session=None):
     try:
         for _ in range(max_redirects + 1):
             _validate_public_destination(current)
+            crawl_delay = _robots_gate(robots_policy_for(config), current,
+                                       config.crawler.get("user_agent", ""))
             if rate_limiter is not None:
-                rate_limiter.wait(current)
+                rate_limiter.wait(current, min_delay=crawl_delay)
             requester = session.head if session is not None else requests.head
             response = requester(current, headers=headers, timeout=timeout, allow_redirects=False)
             try:
@@ -1508,12 +1579,15 @@ def _head_probe(url: str, config: Config, rate_limiter, session=None):
                                  or response_headers.get("last-modified"))
                 length = _parse_length(response_headers.get("Content-Length")
                                        or response_headers.get("content-length"))
+                served_at = response_headers.get("Date") or response_headers.get("date")
             finally:
                 _close_response(response)
             if status in REDIRECT_STATUS_CODES and location:
                 current = urljoin(current, location)
                 continue
             if 200 <= status < 300:
+                if _generated_on_request(last_modified, served_at):
+                    last_modified = None
                 return _parse_http_date(last_modified), length
             return None, None
     except Exception:  # noqa: BLE001 - a missing date is not a crawl failure
@@ -1534,6 +1608,12 @@ def _probe_once(canonical: str, config: Config):
         return state["cache"][canonical]
     if state["remaining"] <= 0:
         return None
+    limiter = state["rate_limiter"]
+    cost = limiter.delay_for(canonical) if limiter is not None else 0.0
+    if state.get("seconds") is not None and cost > 0:
+        if state["seconds"] < cost:
+            return None
+        state["seconds"] -= cost
     state["remaining"] -= 1
     state["probed"] += 1
     found, length = _head_probe(canonical, config, state["rate_limiter"], state["session"])
@@ -2352,6 +2432,7 @@ def _crawl_reading_room_with_connection(
             continue
 
         soup = BeautifulSoup(html, "html.parser")
+        _register_linked_reading_rooms(conn, rr, soup, final_url, root_url, document_allowed)
         page_links = extract_document_links(html, final_url, document_allowed, soup=soup)
         inherited = target.published_date if target.inherit_date else None
         if window is not None:
@@ -2421,6 +2502,27 @@ def _crawl_reading_room_with_connection(
         rr_id,
         datetime.utcnow().isoformat(),
     )
+
+
+def _register_linked_reading_rooms(conn, rr, soup, base_url, root_url, allowed) -> int:
+    """Register structured public reading rooms (FOIAXpress PAL) that a source
+    links to on its own domain, so later cycles crawl them with the PAL adapter."""
+    added = 0
+    for tag in soup.find_all("a", href=True):
+        url = canonicalize_url(urljoin(base_url, tag["href"]))
+        if (not url or url == root_url or not is_pal_reading_room(url)
+                or (allowed is not None and not allowed(url))):
+            continue
+        if conn.execute("SELECT 1 FROM reading_rooms WHERE url = ?", (url,)).fetchone():
+            continue
+        upsert_reading_room(
+            conn, url, f"{rr['label'] or 'Reading room'} (public access reading room)",
+            rr["level"] or "office", rr["agency_id"], rr["office_id"],
+            source_type="linked_pal",
+        )
+        logger.info("Registered linked PAL reading room %s from %s", url, rr["url"])
+        added += 1
+    return added
 
 
 FEED_MIME_TYPES = {"application/rss+xml", "application/atom+xml", "application/rdf+xml"}

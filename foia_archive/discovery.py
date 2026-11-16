@@ -12,7 +12,11 @@ from urllib.parse import urlsplit, urlunsplit
 import requests
 
 from .intelligence_community_sources import normalized_ic_elements
-from .source_overrides import current_source_url, curated_sources_for_component
+from .source_overrides import (
+    SUPPLEMENTAL_SOURCES,
+    current_source_url,
+    curated_sources_for_component,
+)
 from .storage import (
     deactivate_reading_rooms_not_seen,
     get_connection,
@@ -575,6 +579,27 @@ def refresh_metadata(config: Config) -> None:
             )
             seen_source_urls.add(url)
             seen_source_count += 1
+
+    for supplemental in SUPPLEMENTAL_SOURCES:
+        if supplemental["url"] in seen_source_urls:
+            continue
+        agency_slug = slugify(supplemental["agency"])
+        agency_id = agency_cache.get(agency_slug)
+        if agency_id is None:
+            agency_id = upsert_agency(conn, agency_slug, supplemental["agency"], {"supplemental": True})
+            agency_cache[agency_slug] = agency_id
+        upsert_reading_room(
+            conn,
+            supplemental["url"],
+            supplemental["label"],
+            "agency",
+            agency_id,
+            None,
+            source_type=supplemental["source_type"],
+            seen_at=refresh_seen_at,
+        )
+        seen_source_urls.add(supplemental["url"])
+        seen_source_count += 1
 
     if not components:
         logger.warning(

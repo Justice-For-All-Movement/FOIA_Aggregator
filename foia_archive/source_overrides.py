@@ -163,6 +163,7 @@ SOURCE_URL_REPLACEMENTS: Dict[str, str] = {
     "https://www.restorethegulf.gov/resources/council-documents-foia-library": "https://www.restorethegulf.gov/reports/",
     "https://www.whitehouse.gov/ipec/legal/": "https://www.whitehouse.gov/ipec",
     "https://www.ntsb.gov/about/foia/Pages/default.aspx": "https://securefoia.ntsb.gov/app/ReadingRoom.aspx",
+    "https://www.epa.gov/foia/epa-foia-reading-room": "https://www.epa.gov/foia/foia-libraries-and-repositories",
 }
 
 
@@ -216,7 +217,31 @@ def historical_component_note(component_id: str | None) -> str | None:
 
 # Public RSS/Atom feeds that list a reading room's releases with real dates,
 # verified by the live probe. Keyed by the canonical source root URL.
-CURATED_SOURCE_FEEDS: Dict[str, List[str]] = {}
+CURATED_SOURCE_FEEDS: Dict[str, List[str]] = {
+    # Plone "Recently Added" collection: 20 newest Vault releases with dates.
+    "https://vault.fbi.gov/": ["https://vault.fbi.gov/recently-added/RSS"],
+}
+
+
+class SupplementalSource(TypedDict):
+    url: str
+    agency: str
+    label: str
+    source_type: str
+    note: str
+
+
+# Official public reading rooms that FOIA.gov metadata does not list but the
+# agency's own FOIA pages link to (verified by the live probe).
+SUPPLEMENTAL_SOURCES: List[SupplementalSource] = [
+    {
+        "url": "https://securefoia.epa.gov/app/ReadingRoom.aspx",
+        "agency": "Environmental Protection Agency",
+        "label": "EPA FOIAXpress public reading room",
+        "source_type": "supplemental_pal",
+        "note": "Linked from https://www.epa.gov/foia as the public access reading room.",
+    },
+]
 
 
 def curated_feeds_for_source(root_url: str | None) -> List[str]:

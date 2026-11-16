@@ -173,7 +173,7 @@ WINDOW_PROBE_SOURCES = (
     ("https://www.archives.gov/foia/electronic-reading-room", "NARA reading room"),
     ("https://foia.state.gov/", "State FOIA virtual reading room"),
     ("https://www.dol.gov/general/foia/readroom", "DOL reading room"),
-    ("https://www.epa.gov/foia/epa-foia-reading-room", "EPA reading room"),
+    ("https://www.epa.gov/foia/foia-libraries-and-repositories", "EPA FOIA libraries"),
     ("https://www.odni.gov/accountability/", "ODNI accountability"),
 )
 
@@ -344,6 +344,168 @@ def source_discovery(cfg) -> None:
             out(f"  feed {url} error {type(exc).__name__}: {str(exc)[:120]}")
 
 
+def _shard_of(url: str, shards: int) -> int:
+    """Stable shard by registrable domain (one organisation per shard)."""
+    import hashlib
+    from urllib.parse import urlsplit
+
+    from foia_archive.scraper_core import registrable_domain
+
+    domain = registrable_domain(urlsplit(url).hostname or "") or url
+    return int(hashlib.sha256(domain.encode()).hexdigest(), 16) % max(1, shards)
+
+
+def broad_crawl(cfg_path: str, days: int, shard: int, shards: int) -> None:
+    """Dry-run window crawl over every FOIA.gov publication source (sharded).
+
+    Metadata only: listing pages plus bounded HEAD requests (Last-Modified,
+    Content-Length). Writes probe-summary-<shard>.json for aggregation.
+    """
+    import statistics
+    import tempfile
+    import time as _time
+
+    import yaml
+
+    from foia_archive.discovery import refresh_metadata
+    from foia_archive.engine import run_once
+    from foia_archive.published_window import resolve_window
+    from foia_archive.storage import get_connection, init_db, upsert_reading_room
+    from foia_archive.utils import load_config
+
+    out(f"## Broad window crawl shard {shard}/{shards} (dry run, last {days} days)")
+    started = _time.monotonic()
+    with tempfile.TemporaryDirectory() as tmp:
+        data = yaml.safe_load(Path(cfg_path).read_text())
+        data["storage"].update({"backend": "local", "db_path": f"{tmp}/probe.db", "files_dir": f"{tmp}/files"})
+        data["crawler"].update({
+            "dry_run": True,
+            "max_pages_per_source": int(os.getenv("PROBE_MAX_PAGES", "4")),
+            "max_depth": 1,
+            "max_discovered_docs_per_source": 600,
+            "per_host_delay_seconds": float(os.getenv("PROBE_HOST_DELAY", "1.0")),
+            "page_timeout_seconds": 20, "page_max_size_mb": 3,
+            "maximum_cycle_seconds": int(os.getenv("PROBE_CYCLE_SECONDS", "1500")),
+            "max_head_date_probes_per_source": int(os.getenv("PROBE_HEAD_BUDGET", "25")),
+            "head_probe_sizes": True,
+            "parallel_hosts": int(os.getenv("PROBE_PARALLEL", "10")),
+            "failed_source_retry_minutes": 0,
+            "browser_compatibility_fallback": False,
+        })
+        data["downloader"].update({"max_retries": 1})
+        data["database_backup"] = {"enabled": False}
+        config_file = Path(tmp) / "probe.yaml"
+        config_file.write_text(yaml.safe_dump(data))
+        init_db(f"{tmp}/probe.db", f"{tmp}/files")
+        try:
+            refresh_metadata(load_config(str(config_file)))
+        except Exception as exc:  # noqa: BLE001
+            out(f"metadata refresh failed ({type(exc).__name__}); using the fixed probe list")
+            conn = get_connection(f"{tmp}/probe.db")
+            for url, label in WINDOW_PROBE_SOURCES:
+                upsert_reading_room(conn, url, label, "agency", None, None, source_type="reading_room")
+            conn.close()
+        conn = get_connection(f"{tmp}/probe.db")
+        rows = conn.execute("SELECT id, url FROM reading_rooms WHERE active = 1").fetchall()
+        drop = [r["id"] for r in rows if _shard_of(r["url"], shards) != shard]
+        conn.executemany("UPDATE reading_rooms SET active = 0 WHERE id = ?", [(i,) for i in drop])
+        conn.commit()
+        total_sources = len(rows) - len(drop)
+        conn.close()
+        out(f"sources in shard: {total_sources} of {len(rows)}")
+        window = resolve_window(since_days=days)
+        stats: dict = {}
+        run_once(config_path=str(config_file), dry_run=True, max_docs_per_source=600,
+                 refresh_metadata_enabled=False, backup_enabled=False,
+                 published_window=window, window_stats_out=stats)
+        out(f"window={window} engine counts={json.dumps(stats, sort_keys=True)}")
+        since30 = resolve_window(since_days=30)["since"]
+        conn = get_connection(f"{tmp}/probe.db")
+        per_source = []
+        try:
+            for row in conn.execute(
+                """SELECT rr.id, rr.label, rr.url, rr.last_error, rr.last_successful_crawl_at,
+                          COUNT(d.id) AS docs,
+                          SUM(CASE WHEN d.published_date IS NOT NULL AND d.published_date != '' THEN 1 ELSE 0 END) AS dated,
+                          SUM(CASE WHEN d.published_date_source = 'header' THEN 1 ELSE 0 END) AS header,
+                          SUM(CASE WHEN d.published_date >= ? THEN 1 ELSE 0 END) AS in_window,
+                          SUM(CASE WHEN d.published_date >= ? THEN 1 ELSE 0 END) AS in_30,
+                          SUM(CASE WHEN d.remote_content_length IS NOT NULL THEN 1 ELSE 0 END) AS sized,
+                          SUM(COALESCE(d.remote_content_length, 0)) AS bytes,
+                          SUM(CASE WHEN d.published_date >= ? THEN COALESCE(d.remote_content_length, 0) ELSE 0 END) AS window_bytes,
+                          SUM(CASE WHEN d.published_date >= ? AND d.remote_content_length IS NULL THEN 1 ELSE 0 END) AS window_unsized,
+                          SUM(CASE WHEN d.published_date >= ? THEN COALESCE(d.remote_content_length, 0) ELSE 0 END) AS bytes_30,
+                          MAX(d.published_date) AS newest
+                   FROM reading_rooms rr LEFT JOIN documents d ON d.reading_room_id = rr.id
+                   WHERE rr.active = 1 GROUP BY rr.id ORDER BY rr.url""",
+                (window["since"], since30, window["since"], window["since"], since30),
+            ):
+                item = {k: row[k] for k in row.keys()}
+                item["reached"] = bool(row["last_successful_crawl_at"]) and not row["last_error"]
+                item["attempted"] = bool(row["last_successful_crawl_at"] or row["last_error"])
+                per_source.append(item)
+                state = ("FAILED: " + str(row["last_error"])[:110]) if row["last_error"] else (
+                    "reached" if item["reached"] else "not attempted")
+                out(f"  {str(row['label'])[:40]} <{row['url'][:90]}>: {state}; docs={row['docs']} "
+                    f"dated={row['dated'] or 0} (lm={row['header'] or 0}) in_{days}d={row['in_window'] or 0} "
+                    f"in_30d={row['in_30'] or 0} sized={row['sized'] or 0} bytes={row['bytes'] or 0} newest={row['newest']}")
+            sizes = [r[0] for r in conn.execute(
+                "SELECT remote_content_length FROM documents WHERE remote_content_length > 0")]
+            for row in conn.execute(
+                "SELECT title, url, published_date, published_date_source, remote_content_length FROM documents "
+                "WHERE published_date >= ? ORDER BY published_date DESC LIMIT 15", (window["since"],)):
+                out(f"    recent: {row['published_date']} [{row['published_date_source']}] "
+                    f"{row['remote_content_length']}B {str(row['title'])[:60]} {row['url'][:110]}")
+        finally:
+            conn.close()
+    summary = {
+        "shard": shard, "shards": shards, "days": days, "window": window, "engine": stats,
+        "elapsed_seconds": round(_time.monotonic() - started),
+        "median_size": statistics.median(sizes) if sizes else None,
+        "sources": per_source,
+    }
+    Path(f"probe-summary-{shard}.json").write_text(json.dumps(summary, default=str))
+
+
+def aggregate(directory: str) -> None:
+    """Combine shard summaries into coverage and weekly-volume estimates."""
+    import statistics
+
+    files = sorted(Path(directory).rglob("probe-summary-*.json"))
+    shards = [json.loads(f.read_text()) for f in files]
+    sources = [s for shard in shards for s in shard["sources"]]
+    if not sources:
+        out("no shard summaries found")
+        return
+    days = shards[0]["days"]
+    medians = [s["median_size"] for s in shards if s.get("median_size")]
+    median = statistics.median(medians) if medians else 0
+    reached = [s for s in sources if s["reached"]]
+    failed = [s for s in sources if s["last_error"]]
+    total = lambda key: sum(int(s.get(key) or 0) for s in sources)  # noqa: E731
+    window_bytes = total("window_bytes") + total("window_unsized") * median
+    out(f"## Aggregate over {len(shards)} shards")
+    out(f"sources={len(sources)} reached={len(reached)} failed={len(failed)} "
+        f"not_attempted={len(sources) - len(reached) - len(failed)}")
+    out(f"links={total('docs')} dated={total('dated')} last_modified_dated={total('header')} "
+        f"in_{days}d={total('in_window')} in_30d={total('in_30')} sized={total('sized')}")
+    out(f"bytes of all sized links={total('bytes'):,}; median document size={int(median):,}")
+    out(f"estimated bytes released in last {days}d (sized + unsized*median)={int(window_bytes):,} "
+        f"(~{window_bytes / 1e9:.2f} GB/week); last 30d sized bytes={total('bytes_30'):,} "
+        f"(~{total('bytes_30') / 4.3 / 1e9:.2f} GB/week averaged)")
+    out("engine: " + json.dumps({k: sum(int((s['engine'] or {}).get(k) or 0) for s in shards)
+                                 for k in ('in_window', 'unknown_date', 'out_of_window', 'newly_found')}))
+    errors = {}
+    for s in failed:
+        kind = str(s["last_error"]).split(":", 1)[0]
+        errors[kind] = errors.get(kind, 0) + 1
+    out(f"failure kinds: {errors}")
+    top = sorted(sources, key=lambda s: -(int(s.get("in_window") or 0)))[:15]
+    for s in top:
+        if s.get("in_window"):
+            out(f"  top in-window: {s['in_window']} {s['url'][:90]} bytes={s.get('window_bytes')}")
+
+
 DATE_TEXT = (r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? \d{1,2},? \d{4}"
              r"|\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2}")
 
@@ -425,6 +587,18 @@ def main() -> None:
                 window_crawl(os.getenv("FOIA_CONFIG", "config/settings.yaml"), days)
             except Exception as exc:  # noqa: BLE001
                 out(f"window crawl probe error: {type(exc).__name__}: {str(exc)[:300]}")
+            continue
+        if section.startswith("broad-crawl"):
+            _, days_part, shard_part = (section.split(":") + ["7", "0/1"])[:3]
+            shard, _, shards = shard_part.partition("/")
+            try:
+                broad_crawl(os.getenv("FOIA_CONFIG", "config/settings.yaml"), int(days_part or 7),
+                            int(shard or 0), int(shards or 1))
+            except Exception as exc:  # noqa: BLE001
+                out(f"broad crawl probe error: {type(exc).__name__}: {str(exc)[:300]}")
+            continue
+        if section.startswith("aggregate"):
+            aggregate(section.partition(":")[2] or ".")
             continue
         if section == "source-discovery":
             source_discovery(cfg)

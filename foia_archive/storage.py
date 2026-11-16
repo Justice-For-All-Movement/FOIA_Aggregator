@@ -16,7 +16,7 @@ def ensure_dirs(db_path: Path, files_dir: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
 
-DB_BUSY_TIMEOUT_MS = 5000
+DB_BUSY_TIMEOUT_MS = 30000
 
 
 def get_connection(db_path: Path | str) -> sqlite3.Connection:
@@ -422,7 +422,8 @@ def deactivate_reading_rooms_not_seen(
         """
         UPDATE reading_rooms
         SET active = 0
-        WHERE last_seen_at IS NULL OR last_seen_at != ?
+        WHERE (last_seen_at IS NULL OR last_seen_at != ?)
+          AND COALESCE(source_type, '') NOT LIKE 'linked%'
         """,
         (seen_at,),
     )
