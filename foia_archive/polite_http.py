@@ -55,7 +55,8 @@ def fetch_text(
         response = None
         try:
             response, final_url = _request_with_safe_redirects(
-                url, headers=headers, timeout=timeout, max_redirects=3,
+                # Never forward a token through a redirect (possible other host).
+                url, headers=headers, timeout=timeout, max_redirects=0 if token else 3,
                 rate_limiter=rate_limiter,
             )
             status = int(getattr(response, "status_code", 200))

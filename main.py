@@ -451,6 +451,64 @@ def corpus_review(
         typer.echo(f"{gate['result']:>7}  {gate['id']}: {gate['description']}")
 
 
+@app.command("muckrock-requests")
+def muckrock_requests_command(
+    since: str | None = typer.Option(None, "--since", help="Window start YYYY-MM-DD (inclusive)."),
+    until: str | None = typer.Option(None, "--until", help="Window end YYYY-MM-DD (inclusive)."),
+    since_days: int | None = typer.Option(None, "--since-days", min=0, max=3660,
+                                          help="Shorthand for --since <today minus N days>."),
+    date_field: str = typer.Option("submitted", "--date-field",
+                                   help="Which request date the window applies to: submitted, updated or done."),
+    max_pages: int = typer.Option(5, "--max-pages", min=1, max=200),
+    config: str = "config/settings.yaml",
+):
+    """FC-04: store public MuckRock request metadata filed in a date window.
+
+    Requires MUCKROCK_API_TOKEN (MuckRock's API v2 list endpoint is
+    authenticated); without it the command exits without network access.
+    Stores no requester identity. Runs under the single-writer lock.
+    """
+    import json
+    from foia_archive.ingestion_journal import exclusive_writer
+    from foia_archive.muckrock_requests import DATE_FIELDS, api_token, list_requests
+    from foia_archive.polite_http import fetch_json
+    from foia_archive.published_window import resolve_window
+    from foia_archive.scraper_core import HostRateLimiter
+    from foia_archive.storage import init_db
+
+    if date_field not in DATE_FIELDS:
+        raise typer.BadParameter(f"--date-field must be one of {sorted(DATE_FIELDS)}")
+    try:
+        window = resolve_window(since=since, until=until, since_days=since_days)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    if window is None:
+        raise typer.BadParameter("give --since, --until or --since-days")
+    token = api_token()
+    if token is None:
+        typer.echo("MuckRock request listing disabled: set MUCKROCK_API_TOKEN (no request was made).")
+        raise typer.Exit(code=0)
+
+    cfg = load_config(config)
+    db_path = cfg.storage.get("db_path")
+    # No published throttle found; stay conservative at >= 2 s per request.
+    limiter = HostRateLimiter(max(2.0, float(cfg.crawler.get("per_host_delay_seconds", 0.5))))
+    with exclusive_writer(db_path):
+        init_db(db_path, cfg.storage.get("files_dir"))
+        conn = get_connection(db_path)
+        try:
+            result = list_requests(
+                conn, lambda url: fetch_json(url, cfg, limiter, token=token),
+                since=window["since"], until=window["until"], date_field=date_field,
+                max_pages=max_pages,
+            )
+        finally:
+            conn.close()
+    typer.echo(json.dumps(result, sort_keys=True))
+    if result["state"] == "BLOCKED":
+        raise typer.Exit(code=3)
+
+
 @app.command()
 def daemon(config: str = "config/settings.yaml"):
     """Run continuous crawler."""

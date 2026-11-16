@@ -742,6 +742,70 @@ async def recent_releases(
     )
 
 
+REQUESTS_NOTE = ("Public FOIA request metadata published by MuckRock (third party), limited to "
+                 "requests this archive has listed; requester identities are not stored.")
+
+
+def _requests_listing(days, since, until, date_field, page, page_size):
+    from foia_archive.muckrock_requests import query_requests
+
+    if date_field not in ("submitted", "updated", "done"):
+        raise HTTPException(status_code=400, detail="date_field must be submitted, updated or done")
+    since_value, until_value, day_count = _recent_window(days, since, until)
+    conn = get_db()
+    try:
+        listing = query_requests(conn, since=since_value, until=until_value, date_field=date_field,
+                                 limit=page_size, offset=(page - 1) * page_size)
+    finally:
+        conn.close()
+    listing.update(since=since_value, until=until_value, days=day_count, date_field=date_field,
+                   publisher="MuckRock", note=REQUESTS_NOTE)
+    return listing
+
+
+@app.get("/requests", response_class=HTMLResponse)
+async def requests_page(
+    request: Request,
+    days: Optional[str] = Query(None, max_length=4),
+    since: Optional[str] = Query(None, max_length=10),
+    until: Optional[str] = Query(None, max_length=10),
+    date_field: str = Query("submitted", max_length=10),
+    page: int = Query(1, ge=1, le=10000),
+):
+    """FOIA requests others filed (MuckRock public metadata) in a date window."""
+    listing = _requests_listing(days, since, until, date_field, page, 50)
+    total_pages = max(1, math.ceil(listing["total"] / 50))
+    base = {"date_field": date_field}
+    base.update({"since": listing["since"]} if listing["days"] is None else {"days": listing["days"]})
+    if listing["until"]:
+        base["until"] = listing["until"]
+    return templates.TemplateResponse(
+        request=request, name="requests.html",
+        context=_template_context(
+            request, listing=listing, page=page, total_pages=total_pages,
+            previous_url=f"/requests?{urlencode({**base, 'page': page - 1})}" if page > 1 else None,
+            next_url=f"/requests?{urlencode({**base, 'page': page + 1})}" if page < total_pages else None,
+            api_url="/api/v1/requests?" + urlencode({k: v for k, v in base.items()}),
+        ),
+    )
+
+
+@app.get("/api/v1/requests")
+async def requests_api(
+    request: Request,
+    days: Optional[str] = Query(None, max_length=4),
+    since: Optional[str] = Query(None, max_length=10),
+    until: Optional[str] = Query(None, max_length=10),
+    date_field: str = Query("submitted", max_length=10),
+    page: int = Query(1, ge=1, le=10000),
+    limit: int = Query(100, ge=1, le=500),
+):
+    limited = _export_rate_limited(request)
+    if limited:
+        return limited
+    return JSONResponse(_requests_listing(days, since, until, date_field, page, limit))
+
+
 @app.get("/about", response_class=HTMLResponse)
 async def about_page(request: Request):
     conn = get_db()
