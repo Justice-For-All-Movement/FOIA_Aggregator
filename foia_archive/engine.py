@@ -20,6 +20,8 @@ from .scraper_core import (
     get_reading_rooms_to_crawl,
 )
 from . import published_window as pw
+from . import wayback
+from .storage_policy import run_download_counter
 from .storage import (
     get_connection,
     init_db,
@@ -149,10 +151,22 @@ def run_once(
     # Validate resource limits before any lock, database or network action.
     limits = _validated_cycle_limits(cfg)
 
+    # Shared across host-parallel workers (deep copies keep this object).
+    run_download_counter(cfg)
+
     # Lock the resolved database path before schema writes or external work.
     with exclusive_writer(cfg.storage.get("db_path"), allow_nested=True):
         init_db(cfg.storage.get("db_path"), cfg.storage.get("files_dir"))
         result = _run_cycle(cfg, refresh_metadata_enabled, backup_enabled, limits)
+        if not limits["dry_run"] and wayback.enabled():
+            conn = get_connection(cfg.storage.get("db_path"))
+            try:
+                counts = wayback.preserve(conn, cfg.crawler.get("user_agent", "FOIAArchiveBot/0.1"))
+                logger.info("Wayback preservation: %s", counts)
+            except Exception as exc:  # noqa: BLE001 - preservation never fails a crawl
+                logger.warning("Wayback preservation failed: %s", type(exc).__name__)
+            finally:
+                conn.close()
     window = pw.window_from_config(cfg)
     if window is not None:
         counts = pw.stats(cfg)
@@ -235,6 +249,9 @@ def _crawl_host_groups(cfg, pending, room_by_id, parallel, crawl_one, stop) -> N
 
     def worker(source_ids):
         local_cfg = Config(copy.deepcopy(cfg.data))
+        # Counters start empty per worker and are merged back once.
+        for key in (pw.STATS_KEY, "_date_probe_totals"):
+            local_cfg.data.pop(key, None)
         try:
             for source_id in source_ids:
                 if stop.is_set():

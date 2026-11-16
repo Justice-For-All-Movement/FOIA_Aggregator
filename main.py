@@ -509,6 +509,93 @@ def muckrock_requests_command(
         raise typer.Exit(code=3)
 
 
+@app.command("bootstrap-github-snapshot")
+def bootstrap_github_snapshot(
+    destination: str = typer.Option(..., "--destination", help="Database path to create."),
+    repo: str = typer.Option(None, "--repo", help="owner/name; defaults to FOIA_GITHUB_SNAPSHOT_REPO."),
+):
+    """Install the newest published catalog snapshot (GitHub Release) when no DB exists.
+
+    Exit 0 = restored, 4 = none published yet, 1 = failed verification/download.
+    """
+    import os
+    from pathlib import Path
+    from foia_archive import github_snapshot as gs
+
+    repo = repo or os.getenv("FOIA_GITHUB_SNAPSHOT_REPO") or gs.DEFAULT_REPO
+    target = Path(destination)
+    if target.exists() and target.stat().st_size > 0:
+        typer.echo("A database already exists; snapshot bootstrap skipped.")
+        return
+    try:
+        manifest = gs.restore_latest(repo, target)
+    except Exception as exc:  # noqa: BLE001 - report and let the caller fall back
+        typer.echo(f"Catalog snapshot restore failed: {type(exc).__name__}: {exc}", err=True)
+        raise typer.Exit(code=1)
+    if manifest is None:
+        typer.echo("No catalog snapshot has been published yet.")
+        raise typer.Exit(code=4)
+    typer.echo(f"Restored catalog snapshot {manifest['asset']} "
+               f"({(manifest.get('counts') or {}).get('documents')} documents)")
+
+
+@app.command("build-catalog-snapshot")
+def build_catalog_snapshot(
+    output_dir: str = typer.Argument(..., help="Directory for the .db.gz asset and latest.json."),
+    previous_manifest: str = typer.Option(None, "--previous-manifest"),
+    allow_shrink: bool = typer.Option(False, "--allow-shrink"),
+    config: str = "config/settings.yaml",
+):
+    """Write a verified, gzip'd SQLite catalog snapshot (metadata + text) for publication."""
+    import json
+    from pathlib import Path
+    from foia_archive import github_snapshot as gs
+
+    cfg = load_config(config)
+    previous = None
+    if previous_manifest and Path(previous_manifest).is_file():
+        previous = json.loads(Path(previous_manifest).read_text())
+    try:
+        manifest = gs.build_snapshot(Path(cfg.storage.get("db_path")), Path(output_dir),
+                                     previous=previous, allow_shrink=allow_shrink)
+    except gs.SnapshotError as exc:
+        typer.echo(f"Snapshot refused: {exc}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(json.dumps(manifest, indent=2, sort_keys=True))
+
+
+@app.command("snapshot-prune-plan")
+def snapshot_prune_plan(keep: int = typer.Option(3, "--keep", min=1, max=20)):
+    """Read release asset names on stdin; print the dated snapshots to delete."""
+    import sys
+    from foia_archive.github_snapshot import prune_plan
+
+    for name in prune_plan([line.strip() for line in sys.stdin if line.strip()], keep):
+        typer.echo(name)
+
+
+@app.command("wayback-preserve")
+def wayback_preserve(
+    config: str = "config/settings.yaml",
+    max_per_run: int = typer.Option(None, "--max", min=1, max=500),
+):
+    """Record/request Internet Archive snapshots for fetched records (authoritative writer only)."""
+    import json
+    from foia_archive import wayback
+    from foia_archive.ingestion_journal import exclusive_writer
+
+    cfg = load_config(config)
+    db_path = cfg.storage.get("db_path")
+    with exclusive_writer(db_path):
+        conn = get_connection(db_path)
+        try:
+            counts = wayback.preserve(conn, cfg.crawler.get("user_agent", "FOIAArchiveBot/0.1"),
+                                      max_per_run=max_per_run)
+        finally:
+            conn.close()
+    typer.echo(json.dumps(counts, sort_keys=True))
+
+
 @app.command()
 def daemon(config: str = "config/settings.yaml"):
     """Run continuous crawler."""

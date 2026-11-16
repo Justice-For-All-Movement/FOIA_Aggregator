@@ -70,4 +70,4 @@ jobs:
         env:
           # Optional; empty on forks or when unset (listing then records BLOCKED/auth).
           MUCKROCK_API_TOKEN: ${{ secrets.MUCKROCK_API_TOKEN }}
-        run: python scripts/live_probe.py aggregate:probe-summaries muckrock-requests:7
+        run: python scripts/live_probe.py aggregate:probe-summaries diagnose muckrock-requests:7

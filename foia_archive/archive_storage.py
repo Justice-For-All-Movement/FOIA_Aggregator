@@ -109,8 +109,61 @@ class LocalArchiveStorage(ArchiveStorage):
         return self._resolve_key(key)
 
 
+# Backend names that select S3-compatible object storage. Rows written by any
+# of them keep the historical storage_backend value "b2" (meaning "the
+# configured S3-compatible bucket"), so existing archives stay readable.
+S3_BACKEND_NAMES = {"b2", "s3", "r2", "oracle", "oci"}
+NO_STORAGE_BACKEND_NAMES = {"none", "metadata", "github"}
+
+
+def s3_settings(env=None) -> dict:
+    """S3-compatible settings from FOIA_S3_* with B2_* as aliases."""
+    env = os.environ if env is None else env
+
+    def first(*names):
+        for name in names:
+            value = (env.get(name) or "").strip()
+            if value:
+                return value
+        return ""
+
+    return {
+        "access_key_id": first("FOIA_S3_ACCESS_KEY_ID", "B2_KEY_ID"),
+        "secret_access_key": first("FOIA_S3_SECRET_ACCESS_KEY", "B2_APPLICATION_KEY"),
+        "endpoint_url": first("FOIA_S3_ENDPOINT", "B2_ENDPOINT_URL"),
+        "bucket": first("FOIA_S3_BUCKET", "B2_BUCKET"),
+        "region": first("FOIA_S3_REGION", "B2_REGION"),
+        "addressing_style": first("FOIA_S3_ADDRESSING_STYLE"),
+        "max_archive_bytes": first("FOIA_S3_MAX_ARCHIVE_BYTES", "B2_MAX_ARCHIVE_BYTES"),
+    }
+
+
+def object_storage_credentials_present(env=None) -> bool:
+    settings = s3_settings(env)
+    return bool(settings["access_key_id"] and settings["secret_access_key"])
+
+
+def is_backblaze_endpoint(endpoint_url: str) -> bool:
+    return not endpoint_url or "backblazeb2.com" in endpoint_url.lower()
+
+
+def _client_config(endpoint_url: str, addressing_style: str = "", **extra) -> BotocoreConfig:
+    options = dict(extra)
+    style = (addressing_style or "").strip().lower()
+    if not style and "oraclecloud.com" in (endpoint_url or "").lower():
+        style = "path"  # Oracle's S3 compatibility API requires path-style
+    if style in {"path", "virtual"}:
+        options["s3"] = {"addressing_style": style}
+    try:
+        # Newer botocore adds CRC checksums some S3-compatible providers reject.
+        return BotocoreConfig(request_checksum_calculation="when_required",
+                              response_checksum_validation="when_required", **options)
+    except TypeError:
+        return BotocoreConfig(**options)
+
+
 class B2ArchiveStorage(ArchiveStorage):
-    """Backblaze B2 storage through its S3-compatible API."""
+    """S3-compatible object storage (Backblaze B2, Cloudflare R2, Oracle, AWS)."""
 
     name = "b2"
 
@@ -124,6 +177,7 @@ class B2ArchiveStorage(ArchiveStorage):
         application_key: str,
         max_archive_bytes: int = 9_000_000_000,
         client=None,
+        addressing_style: str = "",
     ):
         missing = [
             name
@@ -151,6 +205,7 @@ class B2ArchiveStorage(ArchiveStorage):
             region_name=region,
             aws_access_key_id=key_id,
             aws_secret_access_key=application_key,
+            config=_client_config(endpoint_url, addressing_style),
         )
         # Checkpoint writes must return control after one SDK attempt so an
         # ambiguous response is reconciled before the application retries it.
@@ -158,7 +213,8 @@ class B2ArchiveStorage(ArchiveStorage):
         self.checkpoint_client = client or boto3.client(
             "s3", endpoint_url=endpoint_url, region_name=region,
             aws_access_key_id=key_id, aws_secret_access_key=application_key,
-            config=BotocoreConfig(retries={"mode": "standard", "total_max_attempts": 1}),
+            config=_client_config(endpoint_url, addressing_style,
+                                  retries={"mode": "standard", "total_max_attempts": 1}),
         )
 
     @staticmethod
@@ -291,6 +347,10 @@ class B2ArchiveStorage(ArchiveStorage):
             try:
                 response = self.client.list_object_versions(**kwargs)
             except Exception as exc:
+                if not stored_bytes and _not_implemented(exc):
+                    # e.g. Cloudflare R2 has no object versioning API: current
+                    # objects are the billable objects.
+                    return self._usage_from_current_objects()
                 raise ArchiveStorageError(
                     f"Could not measure B2 bucket usage: {exc}"
                 ) from exc
@@ -327,6 +387,15 @@ class B2ArchiveStorage(ArchiveStorage):
             other_bytes=other_bytes,
         )
 
+    def _usage_from_current_objects(self) -> B2Usage:
+        manifest = self.current_object_manifest()
+        document_bytes = sum(v for k, v in manifest.items() if k.startswith("documents/"))
+        backup_bytes = sum(v for k, v in manifest.items() if k.startswith("database-backups/"))
+        total = sum(manifest.values())
+        return B2Usage(stored_bytes=total, version_count=len(manifest),
+                       current_object_count=len(manifest), document_bytes=document_bytes,
+                       backup_bytes=backup_bytes, other_bytes=total - document_bytes - backup_bytes)
+
     def presigned_url(self, key: str, expires_seconds: int = 3600) -> str:
         try:
             return self.client.generate_presigned_url(
@@ -338,6 +407,31 @@ class B2ArchiveStorage(ArchiveStorage):
             raise ArchiveStorageError(
                 f"Could not create B2 download URL for {key}: {exc}"
             ) from exc
+
+
+def _not_implemented(exc: Exception) -> bool:
+    code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", "")) if hasattr(exc, "response") else ""
+    return code in {"NotImplemented", "NotSupported", "MethodNotAllowed"} or "NotImplemented" in str(exc)
+
+
+class NoArchiveStorage(ArchiveStorage):
+    """Keep no original files: metadata, extracted text and SHA-256 only.
+
+    The staged download is deleted after text extraction; the record keeps a
+    pointer to the original public URL (and a Wayback snapshot when enabled).
+    """
+
+    name = "none"
+
+    def store_file(self, source_path: Path, **kwargs) -> ArchiveLocation:
+        try:
+            Path(source_path).unlink()
+        except FileNotFoundError:
+            pass
+        return ArchiveLocation(backend=self.name, key="", local_path=None)
+
+    def exists(self, key: str) -> bool:
+        return False
 
 
 B2_AUTHORIZE_URL = "https://api.backblazeb2.com/b2api/v4/b2_authorize_account"
@@ -397,13 +491,16 @@ def _resolve_b2_configuration(
     application_key: str,
 ) -> tuple[str, str, str]:
     b2_config = config.storage.get("b2") or {}
-    bucket = (os.getenv("B2_BUCKET") or b2_config.get("bucket") or "").strip()
-    region = (os.getenv("B2_REGION") or b2_config.get("region") or "").strip()
-    endpoint_url = (
-        os.getenv("B2_ENDPOINT_URL")
-        or b2_config.get("endpoint_url")
-        or ""
-    ).strip()
+    env = s3_settings()
+    bucket = (env["bucket"] or b2_config.get("bucket") or "").strip()
+    region = (env["region"] or b2_config.get("region") or "").strip()
+    endpoint_url = (env["endpoint_url"] or b2_config.get("endpoint_url") or "").strip()
+
+    if endpoint_url and not is_backblaze_endpoint(endpoint_url):
+        # Generic S3-compatible provider (R2, Oracle, AWS): no B2 discovery.
+        if not bucket:
+            raise ArchiveStorageError("Missing S3 configuration: FOIA_S3_BUCKET")
+        return bucket, region or "auto", endpoint_url.rstrip("/")
 
     if endpoint_url and not region:
         region = _region_from_b2_endpoint(endpoint_url)
@@ -476,12 +573,14 @@ def _resolve_b2_configuration(
 
 
 def _storage_backend_name(config: Config, backend_name: Optional[str] = None) -> str:
-    return (
+    name = (
         backend_name
         or os.getenv("FOIA_STORAGE_BACKEND")
         or config.storage.get("backend")
         or "local"
     ).strip().lower()
+    # Every S3-compatible provider shares the historical "b2" code path.
+    return "b2" if name in S3_BACKEND_NAMES else ("none" if name in NO_STORAGE_BACKEND_NAMES else name)
 
 
 def get_archive_storage(
@@ -493,12 +592,16 @@ def get_archive_storage(
     if backend == "local":
         return LocalArchiveStorage(config.storage.get("files_dir", "data/files"))
 
-    if backend != "b2":
+    if backend in NO_STORAGE_BACKEND_NAMES:
+        return NoArchiveStorage()
+
+    if backend not in S3_BACKEND_NAMES:
         raise ArchiveStorageError(f"Unsupported archive storage backend: {backend}")
 
     b2_config = config.storage.get("b2") or {}
+    env = s3_settings()
     max_archive_bytes_raw = (
-        os.getenv("B2_MAX_ARCHIVE_BYTES")
+        env["max_archive_bytes"]
         or b2_config.get("max_archive_bytes")
         or 9_000_000_000
     )
@@ -507,8 +610,8 @@ def get_archive_storage(
     except (TypeError, ValueError) as exc:
         raise ArchiveStorageError("B2_MAX_ARCHIVE_BYTES must be an integer") from exc
 
-    key_id = (os.getenv("B2_KEY_ID") or "").strip()
-    application_key = (os.getenv("B2_APPLICATION_KEY") or "").strip()
+    key_id = env["access_key_id"]
+    application_key = env["secret_access_key"]
     bucket, region, endpoint_url = _resolve_b2_configuration(
         config,
         key_id=key_id,
@@ -522,5 +625,6 @@ def get_archive_storage(
         key_id=key_id,
         application_key=application_key,
         max_archive_bytes=max_archive_bytes,
+        addressing_style=env["addressing_style"],
     )
 

@@ -46,6 +46,7 @@ from .storage import (
     insert_document,
     list_reading_rooms,
     known_source_pages,
+    mark_text_only,
     record_reading_room_crawl_failure,
     record_reading_room_crawl_success,
     record_source_pages,
@@ -59,6 +60,7 @@ from .storage import (
 from .robots import policy_for as robots_policy_for
 from .feeds import discover_feed_urls, looks_like_feed, parse_feed
 from .source_overrides import curated_feeds_for_source
+from .storage_policy import StoragePolicy, run_download_counter
 from .text_extraction import OCRSettings, extract_document_text
 from . import published_window as pw
 from .utils import Config, clean_filename, logger
@@ -860,7 +862,7 @@ def _robots_gate(robots, url: str, user_agent: str) -> Optional[float]:
     if robots is None:
         return None
     if not robots.allowed(url, user_agent):
-        raise RobotsDisallowed(f"robots.txt disallows {url} (not crawled)")
+        raise RobotsDisallowed(f"{robots.explain(url)} disallows {url} (not crawled)")
     return robots.crawl_delay(url, user_agent)
 
 
@@ -1623,7 +1625,44 @@ def _probe_once(canonical: str, config: Config):
         state["found"] += 1
         totals["found"] += 1
     state["cache"][canonical] = (found, length)
+    if found:
+        histogram = state.setdefault("histogram", {})
+        histogram[found] = histogram.get(found, 0) + 1
+        date = _uniform_recent_header_date(histogram)
+        if date:
+            state.setdefault("unreliable", set()).add(date)
     return found, length
+
+
+def _uniform_recent_header_date(histogram) -> Optional[str]:
+    """A recent date shared by >=90% of >=10 Last-Modified headers on one
+    source is a deploy/cache stamp, not a release date."""
+    total = sum(histogram.values())
+    if total < 10:
+        return None
+    date, count = max(histogram.items(), key=lambda item: item[1])
+    recent = (datetime.now(timezone.utc).date() - timedelta(days=2)).isoformat()
+    return date if count / total >= 0.9 and date >= recent else None
+
+
+def _drop_unreliable_header_dates(conn, rr_id: int) -> int:
+    """Clear uniform recent Last-Modified dates recorded before detection."""
+    histogram = {
+        row[0]: row[1] for row in conn.execute(
+            "SELECT published_date, COUNT(*) FROM documents WHERE reading_room_id = ? "
+            "AND published_date_source = 'header' GROUP BY published_date", (rr_id,))
+        if row[0]
+    }
+    date = _uniform_recent_header_date(histogram)
+    if not date:
+        return 0
+    cur = conn.execute(
+        "UPDATE documents SET published_date = NULL, published_date_source = NULL "
+        "WHERE reading_room_id = ? AND published_date_source = 'header' AND published_date = ?",
+        (rr_id, date))
+    conn.commit()
+    logger.info("Ignoring uniform Last-Modified %s on %s records of source %s", date, cur.rowcount, rr_id)
+    return cur.rowcount
 
 
 def _candidate_date(conn, canonical: str, page_date: Optional[str], existing, config: Optional[Config]):
@@ -1635,6 +1674,8 @@ def _candidate_date(conn, canonical: str, page_date: Optional[str], existing, co
         return (known, _row_value(existing, "published_date_source") or "page") if known else (None, None)
     probed = _probe_once(canonical, config)
     if not probed or not probed[0]:
+        return None, None
+    if probed[0] in (_probe_state(config) or {}).get("unreliable", ()):
         return None, None
     return probed[0], "header"
 
@@ -1752,6 +1793,8 @@ def _candidate_counts_toward_source_limit(
     if dry_run:
         return False
 
+    if _row_value(existing, "download_status") == "text_only":
+        return False  # fetched, hashed and indexed; original intentionally not kept
     has_archive_location = bool(
         existing["storage_key"] or existing["local_path"]
     )
@@ -1797,6 +1840,8 @@ def _process_document_candidate(
             rr["id"],
             datetime.utcnow().isoformat(),
         )
+        if _row_value(existing, "download_status") == "text_only":
+            return False
         storage_backend = existing["storage_backend"] or (
             "local" if existing["local_path"] else None
         )
@@ -1909,6 +1954,11 @@ def _process_document_candidate(
             )
             return is_new
 
+    run_budget = run_download_counter(config)
+    if run_budget.exhausted():
+        # Bounded run: leave the record pending for the next crawl.
+        return is_new
+
     download_kwargs = {"rate_limiter": rate_limiter}
     if session is not None:
         download_kwargs["session"] = session
@@ -1928,6 +1978,7 @@ def _process_document_candidate(
 
     attempted_at = datetime.utcnow().isoformat()
     if result.status == "downloaded" and result.path is not None:
+        run_budget.reserve(int(result.file_size or 0))
         try:
             search_config = config.data.get("search") or {}
             try:
@@ -1965,6 +2016,40 @@ def _process_document_candidate(
                 if archive_storage.name != "local"
                 else 0
             )
+            policy = StoragePolicy.from_config(
+                config, archive_storage.name,
+                remote_cap=getattr(archive_storage, "max_archive_bytes", 0) or 0,
+            )
+            used_for_policy = (
+                current_usage if archive_storage.name != "local"
+                else archived_remote_bytes(conn, "local")
+            )
+            decision = policy.decide(
+                int(result.file_size or 0), used_for_policy,
+                recent=policy.is_recent(candidate_date, newly_found_at),
+                at_risk=policy.is_at_risk(canonical, _row_value(rr, "last_error")),
+            )
+            if not decision.keep:
+                try:
+                    result.path.unlink()
+                except OSError:
+                    pass
+                mark_text_only(
+                    conn, doc_id, attempted_at, mime_type=result.mime_type,
+                    file_size=result.file_size, sha256=result.sha256, reason=decision.reason,
+                )
+                if metadata_date:
+                    set_document_date(conn, canonical, metadata_date, "metadata")
+                upsert_document_text(
+                    conn, doc_id, body=extraction.text,
+                    extraction_status=extraction.status,
+                    extraction_error=extraction.error,
+                    extraction_method=extraction.method,
+                    extracted_at=attempted_at,
+                    character_count=extraction.character_count,
+                    truncated=extraction.truncated,
+                )
+                return is_new
             known_present = False
             if isinstance(archive_storage, B2ArchiveStorage) and result.sha256:
                 expected_key = archive_storage.key_for(
@@ -2497,6 +2582,7 @@ def _crawl_reading_room_with_connection(
         crawl_session.close()
 
     _finish_page_baseline(conn, rr_id, config)
+    _drop_unreliable_header_dates(conn, rr_id)
     record_reading_room_crawl_success(
         conn,
         rr_id,

@@ -140,7 +140,7 @@ class ServerWithoutB2Tests(unittest.TestCase):
 
 @unittest.skipIf(sys.platform.startswith("win"), "POSIX shell entrypoint")
 class EntrypointTests(unittest.TestCase):
-    def run_entrypoint(self, env_extra, restore_exit=0):
+    def run_entrypoint(self, env_extra, restore_exit=0, snapshot_creates_db=False):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         root = Path(temp.name)
@@ -151,6 +151,9 @@ class EntrypointTests(unittest.TestCase):
         (shims / "gosu").write_text(textwrap.dedent(f"""\
             #!/bin/sh
             shift
+            if [ "$1" = python ] && [ "$3" = bootstrap-github-snapshot ]; then
+              {"echo db > \"$FOIA_DB_PATH\"; exit 0" if snapshot_creates_db else "exit 4"}
+            fi
             if [ "$1" = python ] && [ "$2" = /app/main.py ]; then exit {restore_exit}; fi
             exec "$@"
         """))
@@ -176,6 +179,13 @@ class EntrypointTests(unittest.TestCase):
             {"B2_KEY_ID": "id", "B2_APPLICATION_KEY": "key"}, restore_exit=1)
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("RESULT=failed", completed.stdout)
+
+    def test_zero_storage_mode_installs_published_catalog_snapshot(self):
+        completed = self.run_entrypoint({}, snapshot_creates_db=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("RESULT=github_snapshot", completed.stdout)
+        disabled = self.run_entrypoint({"FOIA_GITHUB_SNAPSHOT_REPO": ""}, snapshot_creates_db=True)
+        self.assertIn("RESULT=skipped_no_credentials", disabled.stdout)
 
     def test_strict_mode_refuses_to_start_without_archive(self):
         completed = self.run_entrypoint({"FOIA_REQUIRE_ARCHIVE": "true"})

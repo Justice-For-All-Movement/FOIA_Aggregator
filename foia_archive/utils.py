@@ -80,6 +80,16 @@ def load_config(path: str, overrides: Optional[Dict[str, Any]] = None) -> Config
         crawler["max_pages_per_source"] = max(1, int(env_max_pages))
     if env_max_depth:
         crawler["max_depth"] = max(0, int(env_max_depth))
+    for env_name, key, cast in (
+        ("FOIA_PARALLEL_HOSTS", "parallel_hosts", int),
+        ("FOIA_MAX_HEAD_PROBES_PER_SOURCE", "max_head_date_probes_per_source", int),
+        ("FOIA_MAX_CYCLE_SECONDS", "maximum_cycle_seconds", int),
+        ("FOIA_MAX_DISCOVERED_DOCS_PER_SOURCE", "max_discovered_docs_per_source", int),
+        ("FOIA_PER_HOST_DELAY_SECONDS", "per_host_delay_seconds", float),
+    ):
+        raw = (os.getenv(env_name) or "").strip()
+        if raw:
+            crawler[key] = cast(raw)
 
     env_since = (os.getenv("FOIA_PUBLISHED_SINCE") or "").strip()
     env_until = (os.getenv("FOIA_PUBLISHED_UNTIL") or "").strip()

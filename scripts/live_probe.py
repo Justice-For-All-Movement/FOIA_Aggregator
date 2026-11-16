@@ -380,13 +380,13 @@ def broad_crawl(cfg_path: str, days: int, shard: int, shards: int) -> None:
         data["storage"].update({"backend": "local", "db_path": f"{tmp}/probe.db", "files_dir": f"{tmp}/files"})
         data["crawler"].update({
             "dry_run": True,
-            "max_pages_per_source": int(os.getenv("PROBE_MAX_PAGES", "4")),
-            "max_depth": 1,
+            "max_pages_per_source": int(os.getenv("PROBE_MAX_PAGES", "8")),
+            "max_depth": int(os.getenv("PROBE_MAX_DEPTH", "2")),
             "max_discovered_docs_per_source": 600,
             "per_host_delay_seconds": float(os.getenv("PROBE_HOST_DELAY", "1.0")),
             "page_timeout_seconds": 20, "page_max_size_mb": 3,
             "maximum_cycle_seconds": int(os.getenv("PROBE_CYCLE_SECONDS", "1500")),
-            "max_head_date_probes_per_source": int(os.getenv("PROBE_HEAD_BUDGET", "25")),
+            "max_head_date_probes_per_source": int(os.getenv("PROBE_HEAD_BUDGET", "60")),
             "head_probe_sizes": True,
             "parallel_hosts": int(os.getenv("PROBE_PARALLEL", "10")),
             "failed_source_retry_minutes": 0,
@@ -506,6 +506,68 @@ def aggregate(directory: str) -> None:
             out(f"  top in-window: {s['in_window']} {s['url'][:90]} bytes={s.get('window_bytes')}")
 
 
+def diagnose(cfg) -> None:
+    """Small, read-only diagnostics for sources the broad probe could not use."""
+    from urllib.parse import urljoin
+
+    from bs4 import BeautifulSoup
+
+    from foia_archive.robots import POLICY
+
+    out("## Diagnostics")
+    limiter = HostRateLimiter(3.0)
+    ua = cfg.crawler.get("user_agent", "FOIAArchiveBot/0.1")
+    for url in ("https://energy.gov/eere/golden-field-office-reading-room", "https://www.copyright.gov/foia/",
+                "https://www.fincen.gov/reading-room-records", "https://www.ttb.gov/ttb-audiences/public/foia",
+                "https://www.fsa.usda.gov/news-room/efoia/electronic-reading-room/index"):
+        allowed = POLICY.allowed(url, ua)
+        out(f"  robots {url}: allowed={allowed} why={POLICY.explain(url)} delay={POLICY.crawl_delay(url, ua)}")
+    for root in ("https://securefoia.epa.gov/app/ReadingRoom.aspx", "https://securefoia.ntsb.gov/app/ReadingRoom.aspx"):
+        try:
+            status, headers, final, html = fetch_text(root, cfg, limiter, accept="text/html", max_bytes=6_000_000)
+        except Exception as exc:  # noqa: BLE001
+            out(f"  pal {root}: {type(exc).__name__}: {str(exc)[:150]}")
+            continue
+        soup = BeautifulSoup(html, "html.parser")
+        hidden = [(i.get("name") or i.get("id")) for i in soup.find_all("input", type="hidden")][:15]
+        scripts = [urljoin(final, sc["src"]) for sc in soup.find_all("script", src=True)]
+        cabinets = len([i for i in soup.find_all("input") if "ChildClick" in (i.get("onclick") or "")])
+        cookies = headers.get("Set-Cookie") or headers.get("set-cookie") or ""
+        out(f"  pal {root}: {status} bytes={len(html)} cabinets={cabinets} hidden={hidden} "
+            f"cookie-names={[c.split('=')[0].strip() for c in cookies.split(',') if '=' in c][:6]}")
+        inline = " ".join(sc.get_text(" ") for sc in soup.find_all("script") if not sc.get("src"))
+        for match in re.finditer(r"SearchDocs[^;]{0,400}", inline):
+            out("    inline: " + " ".join(match.group(0).split())[:400])
+        for src in scripts:
+            if "jquery" in src.lower() or "bootstrap" in src.lower():
+                continue
+            try:
+                _, _, _, js = fetch_text(src, cfg, limiter, accept="*/*", max_bytes=2_000_000)
+            except Exception as exc:  # noqa: BLE001
+                out(f"    script {src}: {type(exc).__name__}")
+                continue
+            for match in re.finditer(r"SearchDocs[^;]{0,600}", js):
+                out(f"    script {src.rsplit('/', 1)[-1]}: " + " ".join(match.group(0).split())[:600])
+            for match in re.finditer(r"(sortBy|sortOrder|pageIndex|doctypes)\s*[:=][^,;]{0,120}", js):
+                out(f"    param {match.group(0)[:140]}")
+        break_after = False
+        if break_after:
+            break
+    try:
+        _, _, _, feed = fetch_text("https://vault.fbi.gov/recently-added/RSS", cfg, limiter, accept="application/rss+xml")
+        from foia_archive.feeds import parse_feed
+        items = parse_feed(feed, "https://vault.fbi.gov/")
+        out(f"  vault feed items={len(items)} first={items[:2]}")
+        if items:
+            _, _, final, html = fetch_text(items[0]["url"], cfg, limiter, accept="text/html")
+            soup = BeautifulSoup(html, "html.parser")
+            links = [urljoin(final, a["href"]) for a in soup.find_all("a", href=True)]
+            out(f"  vault item {final}: links={len(links)} sample-doc-like="
+                f"{[l for l in links if re.search(r'pdf|download|view|part', l, re.I)][:12]}")
+    except Exception as exc:  # noqa: BLE001
+        out(f"  vault error {type(exc).__name__}: {str(exc)[:200]}")
+
+
 DATE_TEXT = (r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? \d{1,2},? \d{4}"
              r"|\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2}")
 
@@ -599,6 +661,9 @@ def main() -> None:
             continue
         if section.startswith("aggregate"):
             aggregate(section.partition(":")[2] or ".")
+            continue
+        if section == "diagnose":
+            diagnose(cfg)
             continue
         if section == "source-discovery":
             source_discovery(cfg)

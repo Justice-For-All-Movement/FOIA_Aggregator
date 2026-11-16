@@ -26,6 +26,7 @@ class RobotsPolicy:
         self._lock = threading.Lock()
         self._host_locks: Dict[str, threading.Lock] = {}
         self._cache: Dict[str, Tuple[float, Optional[robotparser.RobotFileParser], bool]] = {}
+        self._why: Dict[str, str] = {}
 
     def _entry(self, url: str, user_agent: str):
         parts = urlsplit(url)
@@ -38,6 +39,7 @@ class RobotsPolicy:
                 return cached
             parser: Optional[robotparser.RobotFileParser] = None
             unreachable = False
+            why = "robots.txt rule"
             try:
                 status, text = self._fetch(origin + "/robots.txt", user_agent)
                 if 200 <= status < 300:
@@ -45,9 +47,12 @@ class RobotsPolicy:
                     parser.parse(text.splitlines())
                 elif status >= 500 or status == 429:
                     unreachable = True
+                    why = f"robots.txt unavailable (HTTP {status})"
                 # Other 4xx: no robots.txt, no restrictions.
-            except Exception:  # noqa: BLE001 - unreachable means disallow
+            except Exception as exc:  # noqa: BLE001 - unreachable means disallow
                 unreachable = True
+                why = f"robots.txt unreachable ({type(exc).__name__})"
+            self._why[origin] = why
             entry = (time.monotonic(), parser, unreachable)
             self._cache[origin] = entry
             return entry
@@ -59,6 +64,10 @@ class RobotsPolicy:
         if parser is None:
             return True
         return parser.can_fetch(_token(user_agent), url)
+
+    def explain(self, url: str) -> str:
+        parts = urlsplit(url)
+        return self._why.get(f"{parts.scheme.lower()}://{parts.netloc.lower()}", "robots.txt rule")
 
     def crawl_delay(self, url: str, user_agent: str) -> Optional[float]:
         _, parser, _ = self._entry(url, user_agent)

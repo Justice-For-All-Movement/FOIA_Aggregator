@@ -25,6 +25,9 @@
     {% if document.url %}
       <a class="button secondary" href="{{ document.url }}" target="_blank" rel="noopener noreferrer">Open original source</a>
     {% endif %}
+    {% if document.wayback_url %}
+      <a class="button secondary" href="{{ document.wayback_url }}" target="_blank" rel="noopener noreferrer">Wayback Machine copy</a>
+    {% endif %}
   </div>
 </section>
 
@@ -69,8 +72,14 @@
         </div>
         <div>
           <dt>Storage</dt>
-          <dd>{{ (document.storage_backend or 'local')|upper }}</dd>
+          <dd>{% if document.download_status == 'text_only' %}Text and SHA-256 only — original file not kept{% if document.download_error %} <small>({{ document.download_error }})</small>{% endif %}{% elif document.storage_backend == 'b2' %}Object storage{% else %}{{ (document.storage_backend or 'local')|upper }}{% endif %}</dd>
         </div>
+        {% if document.wayback_url or document.wayback_status %}
+        <div>
+          <dt>Internet Archive</dt>
+          <dd>{% if document.wayback_url %}<a href="{{ document.wayback_url }}" target="_blank" rel="noopener noreferrer">Snapshot</a>{% else %}{{ document.wayback_status|title }}{% endif %}</dd>
+        </div>
+        {% endif %}
         {% if document.sha256 %}
         <div style="grid-column: 1 / -1;">
           <dt>SHA-256</dt>

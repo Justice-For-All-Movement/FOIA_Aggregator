@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Mapping, Optional
 
-from .archive_storage import _storage_backend_name
+from .archive_storage import _storage_backend_name, object_storage_credentials_present
 from .utils import Config
 
 TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -22,13 +22,19 @@ TRUE_VALUES = {"1", "true", "yes", "on"}
 # Values the container entrypoint may export after its bootstrap attempt.
 BOOTSTRAP_RESULTS = {
     "restored", "existing", "skipped_no_credentials", "failed",
-    "no_backup", "disabled",
+    "no_backup", "disabled", "github_snapshot",
 }
 
 MESSAGES = {
     "b2_credentials_missing": (
         "The document archive is not connected: Backblaze B2 credentials are "
         "not configured, so archived copies are unavailable."
+    ),
+    "catalog_snapshot": (
+        "Showing the latest public catalog snapshot published by the scheduled "
+        "crawl: record metadata and extracted text. No archive storage is "
+        "connected, so files open at their official source (and the Internet "
+        "Archive when preserved)."
     ),
     "snapshot_not_loaded": (
         "The document archive is not connected: no verified archive snapshot "
@@ -39,7 +45,7 @@ MESSAGES = {
 
 @dataclass(frozen=True)
 class ArchiveStatus:
-    mode: str  # "connected", "local" or "not_connected"
+    mode: str  # "connected", "local", "snapshot" or "not_connected"
     archive_connected: bool
     storage_backend: str
     reason: Optional[str]
@@ -53,8 +59,8 @@ class ArchiveStatus:
 
 
 def b2_credentials_present(env: Mapping[str, str] = os.environ) -> bool:
-    return bool((env.get("B2_KEY_ID") or "").strip()
-                and (env.get("B2_APPLICATION_KEY") or "").strip())
+    """Object-storage credentials (FOIA_S3_* or the B2_* aliases)."""
+    return object_storage_credentials_present(env)
 
 
 def database_present(path: Path) -> bool:
@@ -84,7 +90,7 @@ def resolve_web_database(
     def status(mode, reason=None, placeholder=False):
         return ArchiveStatus(
             mode=mode,
-            archive_connected=mode != "not_connected",
+            archive_connected=mode in ("connected", "local"),
             storage_backend=backend,
             reason=reason,
             message=MESSAGES.get(reason) if reason else None,
@@ -92,6 +98,14 @@ def resolve_web_database(
             bootstrap_result=result,
         )
 
+    if result == "github_snapshot" and present:
+        # Downloaded and verified from the public catalog release.
+        return db_path, status("snapshot", "catalog_snapshot")
+    if backend == "none":
+        if present:
+            return db_path, status("snapshot", "catalog_snapshot")
+        return placeholder_path(db_path), status(
+            "not_connected", "snapshot_not_loaded", placeholder=True)
     if backend != "b2":
         # Local development/writer layout: the DB is created and served here.
         return db_path, status("local")

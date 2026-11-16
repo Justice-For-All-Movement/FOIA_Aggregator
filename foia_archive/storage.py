@@ -263,6 +263,11 @@ def _migration_16_page_baselines(conn: sqlite3.Connection) -> None:
         _ensure_columns(conn, "documents", {"remote_content_length": "INTEGER"})
 
 
+def _migration_17_wayback_preservation(conn: sqlite3.Connection) -> None:
+    from .wayback import create_tables
+    create_tables(conn)
+
+
 MIGRATIONS: Tuple[
     Tuple[int, str, Callable[[sqlite3.Connection], None]],
     ...,
@@ -283,6 +288,7 @@ MIGRATIONS: Tuple[
     (14, "third-party public request metadata", _migration_14_third_party_requests),
     (15, "release date sources and newly-found baseline", _migration_15_release_date_sources),
     (16, "page-level crawl baselines and remote sizes", _migration_16_page_baselines),
+    (17, "wayback machine preservation", _migration_17_wayback_preservation),
 )
 
 
@@ -1139,6 +1145,9 @@ def get_document_detail(
             d.local_path,
             d.storage_backend,
             d.storage_key,
+            d.remote_content_length,
+            d.wayback_url,
+            d.wayback_status,
             a.name AS agency_name,
             o.name AS office_name,
             dt.extraction_status,
@@ -1336,6 +1345,37 @@ def update_download_metadata(
             downloaded_at,
             document_id,
         ),
+    )
+    conn.commit()
+
+
+def mark_text_only(
+    conn: sqlite3.Connection,
+    document_id: int,
+    downloaded_at: str,
+    *,
+    mime_type: Optional[str],
+    file_size: Optional[int],
+    sha256: Optional[str],
+    reason: str,
+) -> None:
+    """Original fetched and hashed, text kept, file not retained (policy)."""
+    conn.execute(
+        """
+        UPDATE documents
+        SET local_path = NULL,
+            downloaded_at = ?,
+            mime_type = ?,
+            file_size = ?,
+            sha256 = ?,
+            storage_backend = 'none',
+            storage_key = NULL,
+            download_status = 'text_only',
+            download_error = ?,
+            last_download_attempt_at = ?
+        WHERE id = ?
+        """,
+        (downloaded_at, mime_type, file_size, sha256, reason[:500], downloaded_at, document_id),
     )
     conn.commit()
 
