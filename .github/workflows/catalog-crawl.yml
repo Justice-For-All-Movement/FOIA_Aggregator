@@ -26,9 +26,9 @@ on:
         required: false
         default: false
       max_docs_per_source:
-        description: "Maximum in-window documents fetched per source"
+        description: "Maximum in-window documents fetched per source (10000 = everything in the window)"
         required: false
-        default: "25"
+        default: "10000"
 
 concurrency:
   # Shared with every other corpus writer: never two writers at once.
@@ -49,12 +49,12 @@ jobs:
       FOIA_DB_PATH: data/foia_archive.db
       FOIA_FILES_DIR: data/files
       FOIA_CRAWLER_DRY_RUN: "false"
-      FOIA_SOURCE_LIMIT: "0"
-      FOIA_MAX_PAGES_PER_SOURCE: "30"
-      FOIA_MAX_DEPTH: "2"
-      FOIA_MAX_DISCOVERED_DOCS_PER_SOURCE: "3000"
-      FOIA_MAX_HEAD_PROBES_PER_SOURCE: "150"
-      FOIA_PARALLEL_HOSTS: "8"
+      FOIA_SOURCE_LIMIT: "10000"
+      FOIA_MAX_PAGES_PER_SOURCE: "150"
+      FOIA_MAX_DEPTH: "3"
+      FOIA_MAX_DISCOVERED_DOCS_PER_SOURCE: "10000"
+      FOIA_MAX_HEAD_PROBES_PER_SOURCE: "3000"
+      FOIA_PARALLEL_HOSTS: "16"
       FOIA_MAX_CYCLE_SECONDS: "15000"
       FOIA_RUN_DOWNLOAD_BUDGET_BYTES: "4000000000"
       FOIA_WAYBACK_ENABLED: ${{ vars.FOIA_WAYBACK_ENABLED || 'false' }}
@@ -132,7 +132,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$IN_SINCE_DAYS" =~ ^[0-9]{1,4}$ ]] || { echo "since_days must be an integer"; exit 1; }
-          [[ "$IN_MAX_DOCS" =~ ^[0-9]{1,4}$ ]] || { echo "max_docs_per_source must be an integer"; exit 1; }
+          [[ "$IN_MAX_DOCS" =~ ^[0-9]{1,5}$ ]] || { echo "max_docs_per_source must be an integer"; exit 1; }
           extra=()
           if [ "$IN_UNKNOWN" = "true" ]; then extra+=(--include-unknown-dates); fi
           python main.py run --dry-run false --since-days "$IN_SINCE_DAYS" \

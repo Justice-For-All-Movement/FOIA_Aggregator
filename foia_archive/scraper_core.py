@@ -1487,7 +1487,7 @@ def _head_probe_budget(config: Config) -> int:
         value = int(config.crawler.get("max_head_date_probes_per_source", 0) or 0)
     except (TypeError, ValueError):
         return 0
-    return max(0, min(value, 500))
+    return max(0, min(value, 5000))
 
 
 def _head_probe_seconds(config: Config) -> float:
