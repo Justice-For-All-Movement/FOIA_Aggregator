@@ -1,0 +1,40 @@
+{
+  "next": "https://www.muckrock.com/api_v2/requests/?cursor=cD0yMDAy&datetime_submitted__gte=2026-11-09&embargo_status=public&page_size=100",
+  "previous": null,
+  "results": [
+    {
+      "id": 2001,
+      "title": "Fixture: border wall contract modifications",
+      "requested_docs": "All contract modifications ... (fixture text, must not be stored)",
+      "slug": "fixture-border-wall-contract-modifications",
+      "status": "processed",
+      "agency": 77,
+      "composer": 9001,
+      "embargo_status": "public",
+      "user": 4242,
+      "edit_collaborators": [5151],
+      "read_collaborators": [],
+      "datetime_submitted": "2026-11-10T09:15:00-05:00",
+      "datetime_updated": "2026-11-12T11:00:00-05:00",
+      "datetime_done": null,
+      "tracking_id": "2027-FIX-00012",
+      "price": "0.00",
+      "tags": ["contracts", "fixture"],
+      "edited_boilerplate": false,
+      "date_due": "2026-12-10"
+    },
+    {
+      "id": 2002,
+      "title": "Fixture: embargoed request",
+      "slug": "fixture-embargoed",
+      "status": "submitted",
+      "agency": 78,
+      "embargo_status": "embargo",
+      "user": 4343,
+      "datetime_submitted": "2026-11-11T10:00:00-05:00",
+      "datetime_updated": "2026-11-11T10:00:00-05:00",
+      "datetime_done": null,
+      "tags": []
+    }
+  ]
+}

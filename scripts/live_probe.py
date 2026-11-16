@@ -277,6 +277,38 @@ def date_context(cfg) -> None:
                 f"date-classes={classes[:6]} text={text!r}")
 
 
+def muckrock_requests_probe(cfg, days: int) -> None:
+    """Run the real FC-04 request listing for a window (1 page, temp DB)."""
+    import tempfile
+
+    from foia_archive.muckrock_requests import api_token, list_requests, query_requests
+    from foia_archive.polite_http import fetch_json
+    from foia_archive.published_window import resolve_window
+    from foia_archive.storage import get_connection, init_db
+
+    window = resolve_window(since_days=days)
+    token = api_token()
+    out(f"## MuckRock request listing (window since {window['since']}, token={'set' if token else 'absent'})")
+    limiter = HostRateLimiter(3.0)
+    with tempfile.TemporaryDirectory() as tmp:
+        init_db(f"{tmp}/probe.db", f"{tmp}/files")
+        conn = get_connection(f"{tmp}/probe.db")
+        try:
+            # Without a token MuckRock's list endpoint requires auth; one
+            # attempt documents the live response (BLOCKED is recorded).
+            result = list_requests(conn, lambda url: fetch_json(url, cfg, limiter, token=token),
+                                   since=window["since"], until=None, max_pages=1)
+            out("  result: " + json.dumps(result, sort_keys=True))
+            listing = query_requests(conn, since=window["since"], until=None, limit=5)
+            for row in listing["requests"]:
+                out(f"    {row['submitted_at']} [{row['status']}] {str(row['title'])[:90]} "
+                    f"agency={row['agency_name'] or row['agency_ref']}")
+        except Exception as exc:  # noqa: BLE001
+            out(f"  error: {type(exc).__name__}: {str(exc)[:200]}")
+        finally:
+            conn.close()
+
+
 def main() -> None:
     cfg = load_config(os.getenv("FOIA_CONFIG", "config/settings.yaml"))
     sections = sys.argv[1:] or ["muckrock-discovery"]
@@ -290,6 +322,8 @@ def main() -> None:
             continue
         if section == "muckrock-discovery":
             muckrock_discovery(cfg)
+        elif section.startswith("muckrock-requests"):
+            muckrock_requests_probe(cfg, int(section.partition(":")[2] or 7))
         elif section == "date-context":
             date_context(cfg)
         elif section == "muckrock-source":

@@ -27,4 +27,7 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Live probe (informational; never fails the PR on remote outages)
-        run: python scripts/live_probe.py muckrock-discovery window-crawl:7
+        env:
+          # Optional; empty on forks or when unset (listing then records BLOCKED/auth).
+          MUCKROCK_API_TOKEN: ${{ secrets.MUCKROCK_API_TOKEN }}
+        run: python scripts/live_probe.py window-crawl:7 muckrock-requests:7

@@ -216,6 +216,11 @@ def _migration_13_acquisition_and_work_queues(conn: sqlite3.Connection) -> None:
     create_work(conn)
 
 
+def _migration_14_third_party_requests(conn: sqlite3.Connection) -> None:
+    from .muckrock_requests import create_tables
+    create_tables(conn)
+
+
 MIGRATIONS: Tuple[
     Tuple[int, str, Callable[[sqlite3.Connection], None]],
     ...,
@@ -233,6 +238,7 @@ MIGRATIONS: Tuple[
     (11, "send-foia-log-requests interchange", _migration_11_sfl_interchange),
     (12, "cross-source identity relations", _migration_12_document_relations),
     (13, "acquisition and work queues", _migration_13_acquisition_and_work_queues),
+    (14, "third-party public request metadata", _migration_14_third_party_requests),
 )
 
 

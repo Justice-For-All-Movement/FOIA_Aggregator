@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Recent FOIA requests — FOIA Aggregator{% endblock %}
+{% block description %}Public FOIA requests others filed, by date, from MuckRock's public request data.{% endblock %}
+{% block content %}
+<section class="record-header">
+  <p class="eyebrow">Requests others filed</p>
+  <h1>{% if listing.days %}Requests {{ listing.date_field }} in the last {{ listing.days }} day{{ '' if listing.days == 1 else 's' }}{% else %}Requests {{ listing.date_field }} {{ listing.since }}{% if listing.until %} to {{ listing.until }}{% else %} or later{% endif %}{% endif %}</h1>
+  <p class="record-subtitle">{{ "{:,}".format(listing.total) }} public request{{ '' if listing.total == 1 else 's' }} listed.</p>
+</section>
+
+<section class="panel">
+  <p class="results-meta"><strong>About this list:</strong> {{ listing.note }}
+    Requests are third-party records, not releases; a request is not proof that any document was released.
+    {% if not listing.available %}<br><strong>No MuckRock request data has been loaded into this archive yet.</strong>{% endif %}
+  </p>
+  <form class="filters" method="get" action="/requests">
+    <label>Last
+      <select name="days">
+        {% for n in [1, 7, 14, 30, 90] %}<option value="{{ n }}" {% if listing.days == n %}selected{% endif %}>{{ n }} day{{ '' if n == 1 else 's' }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Date
+      <select name="date_field">
+        {% for f in ['submitted', 'updated', 'done'] %}<option value="{{ f }}" {% if listing.date_field == f %}selected{% endif %}>{{ f }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Show</button>
+  </form>
+  <p class="results-meta">JSON: <a href="{{ api_url }}">{{ api_url }}</a></p>
+</section>
+
+{% if listing.requests %}
+<div class="results">
+  {% for r in listing.requests %}
+  <article class="result-card">
+    <div class="result-kicker">
+      <span>Submitted {{ (r.submitted_at or '?')[:10] }}</span>
+      {% if r.done_at %}<span>• Completed {{ r.done_at[:10] }}</span>{% endif %}
+      <span>• {{ r.agency_name or ('Agency #' ~ r.agency_ref if r.agency_ref else 'Agency unknown') }}</span>
+      <span>• {{ (r.status or 'unknown')|replace('_', ' ') }}</span>
+    </div>
+    <span class="result-title">{{ r.title or 'Untitled request' }}</span>
+    <div class="result-footer">
+      <div class="result-actions">
+        {% if r.public_url %}<a href="{{ r.public_url }}" target="_blank" rel="noopener noreferrer">View on MuckRock</a>
+        {% else %}<span>MuckRock request #{{ r.request_id }}</span>{% endif %}
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+<nav class="pagination" aria-label="Pagination">
+  {% if previous_url %}<a href="{{ previous_url }}">Previous</a>{% endif %}
+  <span>Page {{ page }} of {{ total_pages }}</span>
+  {% if next_url %}<a href="{{ next_url }}">Next</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

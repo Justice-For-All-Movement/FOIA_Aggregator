@@ -1,0 +1,20 @@
+{
+  "next": null,
+  "previous": "https://www.muckrock.com/api_v2/requests/?cursor=cj0x&page_size=100",
+  "results": [
+    {
+      "id": 2003,
+      "title": "Fixture: inspection reports 2025",
+      "slug": "fixture-inspection-reports-2025",
+      "status": "done",
+      "agency": 77,
+      "embargo_status": "public",
+      "user": 4444,
+      "datetime_submitted": "2026-11-14T08:00:00-05:00",
+      "datetime_updated": "2026-11-15T08:00:00-05:00",
+      "datetime_done": "2026-11-15T08:00:00-05:00",
+      "tracking_id": null,
+      "tags": ["inspections"]
+    }
+  ]
+}
