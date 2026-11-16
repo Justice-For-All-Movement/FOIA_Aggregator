@@ -81,6 +81,20 @@ def load_config(path: str, overrides: Optional[Dict[str, Any]] = None) -> Config
     if env_max_depth:
         crawler["max_depth"] = max(0, int(env_max_depth))
 
+    env_since = (os.getenv("FOIA_PUBLISHED_SINCE") or "").strip()
+    env_until = (os.getenv("FOIA_PUBLISHED_UNTIL") or "").strip()
+    env_since_days = (os.getenv("FOIA_PUBLISHED_SINCE_DAYS") or "").strip()
+    env_unknown = (os.getenv("FOIA_PUBLISHED_INCLUDE_UNKNOWN") or "").strip()
+    if env_since or env_until or env_since_days:
+        from .published_window import resolve_window
+
+        crawler["published_window"] = resolve_window(
+            since=env_since or None,
+            until=env_until or None,
+            since_days=int(env_since_days) if env_since_days else None,
+            include_unknown=bool(parse_bool(env_unknown)) if env_unknown else False,
+        )
+
     overrides = overrides or {}
     for section, values in overrides.items():
         if values is None:

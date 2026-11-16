@@ -39,8 +39,13 @@ def fetch_text(
     max_bytes: int = DEFAULT_MAX_BYTES,
     max_retries: int = 2,
     max_retry_delay: float = 30.0,
+    return_blocked: bool = False,
 ) -> Tuple[int, Dict[str, str], str, str]:
-    """Return ``(status, headers, final_url, text)`` for a 2xx/404 response."""
+    """Return ``(status, headers, final_url, text)`` for a 2xx/404 response.
+
+    ``return_blocked`` returns a 401/403 response (body capped at 64 KiB) for
+    diagnosis instead of raising; it never retries with other headers.
+    """
     headers = _request_headers(config)
     headers["Accept"] = accept
     if token:
@@ -56,6 +61,8 @@ def fetch_text(
             status = int(getattr(response, "status_code", 200))
             response_headers = dict(getattr(response, "headers", {}) or {})
             if status in (401, 403):
+                if return_blocked:
+                    return status, response_headers, final_url, _read_limited_text(response, 65536)
                 raise SourceAccessBlocked(f"HTTP {status} from {final_url}")
             if status in RETRYABLE_STATUS_CODES and attempt < max_retries:
                 _retry_sleep(

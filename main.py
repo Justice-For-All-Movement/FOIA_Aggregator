@@ -25,18 +25,51 @@ def run(
         metavar="[true|false]",
     ),
     max_docs_per_source: int = 10,
+    published_since: str | None = typer.Option(
+        None, "--published-since",
+        help="Archive only documents published on/after this date (YYYY-MM-DD).",
+    ),
+    published_until: str | None = typer.Option(
+        None, "--published-until",
+        help="Archive only documents published on/before this date (YYYY-MM-DD).",
+    ),
+    since_days: int | None = typer.Option(
+        None, "--since-days", min=0, max=3660,
+        help="Shorthand for --published-since <today minus N days> (UTC).",
+    ),
+    include_unknown_dates: bool = typer.Option(
+        False, "--include-unknown-dates",
+        help="Also download documents with no detectable published date.",
+    ),
 ):
-    """Run a single crawl cycle."""
+    """Run a single crawl cycle (optionally limited to a published-date window).
+
+    With a window, metadata is still recorded for every discovered document,
+    but only documents whose detected published date is inside the window are
+    downloaded; unknown dates are skipped unless --include-unknown-dates.
+    """
+    import json
+    from foia_archive.published_window import resolve_window
+
     try:
         dry_run_flag = parse_bool(dry_run)
+        window = resolve_window(
+            since=published_since, until=published_until,
+            since_days=since_days, include_unknown=include_unknown_dates,
+        )
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
+    window_stats: dict = {}
     run_once(
         config_path=config,
         dry_run=dry_run_flag,
         max_docs_per_source=max_docs_per_source,
+        published_window=window,
+        window_stats_out=window_stats,
     )
+    if window is not None:
+        typer.echo("Published-date window summary: " + json.dumps(window_stats, sort_keys=True))
 
 
 @app.command("ingestion-status")

@@ -51,7 +51,7 @@ def describe_item(item: dict, prefix: str = "  item") -> None:
 
 def probe(url: str, cfg, limiter, *, accept: str = "application/json") -> dict | None:
     try:
-        status, headers, final_url, text = fetch_text(url, cfg, limiter, accept=accept, max_bytes=3_000_000)
+        status, headers, final_url, text = fetch_text(url, cfg, limiter, accept=accept, max_bytes=3_000_000, return_blocked=True)
     except SourceAccessBlocked as exc:
         out(f"BLOCKED {url}: {exc}")
         return None
@@ -60,6 +60,11 @@ def probe(url: str, cfg, limiter, *, accept: str = "application/json") -> dict |
         return None
     rl = {k: v for k, v in headers.items() if "ratelimit" in k.lower() or k.lower() in ("retry-after", "content-type", "allow")}
     out(f"GET {url} -> {status} final={final_url} bytes={len(text)} headers={rl}")
+    if status in (401, 403):
+        server = {k: v for k, v in headers.items() if k.lower() in ("server", "cf-mitigated", "www-authenticate", "cf-ray")}
+        out(f"  BLOCKED {status} server-headers={server}")
+        out("  body head: " + " ".join(text[:400].split()))
+        return None
     if "json" not in (headers.get("Content-Type") or headers.get("content-type") or "") or status != 200:
         return {"_text": text, "_status": status}
     try:
@@ -87,7 +92,7 @@ def muckrock_discovery(cfg) -> None:
     robots = probe("https://www.muckrock.com/robots.txt", cfg, limiter, accept="text/plain")
     if robots and "_text" in robots:
         for line in robots["_text"].splitlines():
-            if line.strip() and any(t in line.lower() for t in ("user-agent: *", "api", "crawl-delay", "disallow: /$", "disallow: /foi")):
+            if line.strip() and not line.startswith("#"):
                 out(f"  robots: {line.strip()[:160]}")
     probe("https://www.muckrock.com/api_v1/foia/?format=json&page_size=2", cfg, limiter)
     root = probe("https://www.muckrock.com/api_v2/", cfg, limiter)

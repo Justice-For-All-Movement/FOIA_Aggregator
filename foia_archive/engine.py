@@ -15,6 +15,7 @@ from .scraper_core import (
     crawl_reading_room,
     get_reading_rooms_to_crawl,
 )
+from . import published_window as pw
 from .storage import (
     get_connection,
     init_db,
@@ -117,8 +118,14 @@ def run_once(
     max_docs_per_source: Optional[int] = None,
     refresh_metadata_enabled: bool = True,
     backup_enabled: bool = True,
+    published_window: Optional[dict] = None,
+    window_stats_out: Optional[dict] = None,
 ) -> bool:
     """Run one crawl cycle.
+
+    ``published_window`` (see ``published_window.resolve_window``) limits
+    downloads to documents whose detected published date falls inside it;
+    the per-verdict counts are copied into ``window_stats_out`` when given.
 
     Returns True when metadata refresh succeeded or was intentionally skipped.
     Returns False when metadata refresh failed after retries; crawling still
@@ -130,6 +137,7 @@ def run_once(
             "crawler": {
                 "dry_run": dry_run,
                 "max_docs_per_source": max_docs_per_source,
+                "published_window": published_window,
             }
         },
     )
@@ -140,7 +148,15 @@ def run_once(
     # Lock the resolved database path before schema writes or external work.
     with exclusive_writer(cfg.storage.get("db_path"), allow_nested=True):
         init_db(cfg.storage.get("db_path"), cfg.storage.get("files_dir"))
-        return _run_cycle(cfg, refresh_metadata_enabled, backup_enabled, limits)
+        result = _run_cycle(cfg, refresh_metadata_enabled, backup_enabled, limits)
+    window = pw.window_from_config(cfg)
+    if window is not None:
+        counts = pw.stats(cfg)
+        logger.info("Published-date window %s: %s", window.as_dict(), counts)
+        if window_stats_out is not None:
+            window_stats_out.update(counts)
+            window_stats_out["window"] = window.as_dict()
+    return result
 
 
 def _validated_cycle_limits(cfg) -> dict:
@@ -169,6 +185,7 @@ def _validated_cycle_limits(cfg) -> dict:
     if not dry_run_flag and per_host_delay <= 0:
         raise ValueError("Live crawling requires a positive per-host delay")
     _validate_page_limits(cfg.crawler)
+    pw.window_from_config(cfg)  # fail closed on a malformed window
     return {
         "source_limit": source_limit,
         "max_docs": max_docs,
