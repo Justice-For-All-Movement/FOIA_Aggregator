@@ -15,7 +15,7 @@ a verified SQLite snapshot as an asset of the GitHub Release
 snapshot at startup when no storage keys are set.
 
 1. **Actions → Catalog crawl → Run workflow** (defaults: last 7 days,
-   25 documents per source). A run takes up to ~5 hours.
+   every dated document in the window, up to 10,000 per source). A run takes up to ~5 hours.
 2. To run it weekly (Mondays), add the repository **variable**
    `FOIA_CATALOG_CRAWL_ENABLED` = `true`.
 3. Restart (or redeploy) the Render service after the first run finishes; the
