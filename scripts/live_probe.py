@@ -194,7 +194,9 @@ def window_crawl(cfg_path: str, days: int) -> None:
         data["crawler"].update({
             "dry_run": True, "max_pages_per_source": 3, "max_depth": 1,
             "max_discovered_docs_per_source": 300, "per_host_delay_seconds": 2.0,
-            "page_timeout_seconds": 20, "page_max_size_mb": 3, "maximum_cycle_seconds": 600,
+            "page_timeout_seconds": 20, "page_max_size_mb": 3, "maximum_cycle_seconds": 1500,
+            # Measure Last-Modified coverage across every discovered link.
+            "max_head_date_probes_per_source": int(os.getenv("PROBE_HEAD_BUDGET", "200")),
             # Probe stays honest: never retry a 403 with browser-like headers.
             "browser_compatibility_fallback": False,
         })
@@ -214,12 +216,30 @@ def window_crawl(cfg_path: str, days: int) -> None:
                  published_window=window, window_stats_out=stats)
         out(f"window={window} engine counts={json.dumps(stats, sort_keys=True)}")
         conn = get_connection(f"{tmp}/probe.db")
+        try:
+            totals = conn.execute(
+                """SELECT COUNT(*) AS links,
+                          SUM(published_date_source = 'page') AS page_dated,
+                          SUM(published_date_source = 'header') AS header_dated,
+                          SUM(published_date IS NULL OR published_date = '') AS undated,
+                          SUM(published_date >= ?) AS in_window,
+                          SUM(published_date_source = 'header' AND published_date >= ?) AS header_in_window,
+                          SUM(newly_found_at IS NOT NULL) AS newly_found
+                   FROM documents""", (window["since"], window["since"])).fetchone()
+            out("date sources: " + json.dumps(dict(totals), sort_keys=True))
+            baselines = conn.execute(
+                "SELECT COUNT(*) FROM reading_rooms WHERE baseline_completed_at IS NOT NULL").fetchone()[0]
+            out(f"sources with completed baseline after this run: {baselines}")
+        finally:
+            conn.close()
+        conn = get_connection(f"{tmp}/probe.db")
         since30 = resolve_window(since_days=30)["since"]
         try:
             for row in conn.execute(
                 """SELECT rr.label, rr.url, rr.last_error,
                           COUNT(d.id) AS docs,
                           SUM(CASE WHEN d.published_date IS NOT NULL AND d.published_date != '' THEN 1 ELSE 0 END) AS dated,
+                          SUM(CASE WHEN d.published_date_source = 'header' THEN 1 ELSE 0 END) AS header,
                           SUM(CASE WHEN d.published_date >= ? THEN 1 ELSE 0 END) AS in_window,
                           SUM(CASE WHEN d.published_date >= ? THEN 1 ELSE 0 END) AS in_30,
                           MAX(d.published_date) AS newest
@@ -229,11 +249,12 @@ def window_crawl(cfg_path: str, days: int) -> None:
             ):
                 state = "FAILED: " + str(row["last_error"])[:140] if row["last_error"] else "reached"
                 out(f"  {row['label']}: {state}; docs={row['docs']} dated={row['dated'] or 0} "
-                    f"in_{days}d={row['in_window'] or 0} in_30d={row['in_30'] or 0} newest={row['newest']}")
+                    f"(last-modified={row['header'] or 0}) in_{days}d={row['in_window'] or 0} in_30d={row['in_30'] or 0} newest={row['newest']}")
             for row in conn.execute(
-                "SELECT title, url, published_date FROM documents WHERE published_date >= ? "
-                "ORDER BY published_date DESC LIMIT 8", (window["since"],)):
-                out(f"    recent: {row['published_date']} {str(row['title'])[:80]} {row['url'][:120]}")
+                "SELECT title, url, published_date, published_date_source FROM documents "
+                "WHERE published_date >= ? ORDER BY published_date DESC LIMIT 10", (window["since"],)):
+                out(f"    recent: {row['published_date']} [{row['published_date_source']}] "
+                    f"{str(row['title'])[:70]} {row['url'][:110]}")
         finally:
             conn.close()
 

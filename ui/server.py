@@ -45,6 +45,7 @@ from foia_archive.export_contract import (
 )
 from foia_archive.incident_ledger import list_incidents
 from foia_archive.storage import (
+    DATE_SOURCE_LABELS,
     SORT_ORDERS,
     get_admin_dashboard_stats,
     get_archive_stats,
@@ -68,6 +69,7 @@ init_db(DB_PATH, FILES_DIR)
 
 app = FastAPI(title="FOIA Aggregator")
 templates = Jinja2Templates(directory="ui/templates")
+templates.env.globals["date_source_label"] = lambda key: DATE_SOURCE_LABELS.get(key or "page", key)
 PUBLIC_BASE_URL = (os.getenv("FOIA_PUBLIC_BASE_URL") or "").strip().rstrip("/")
 PROCESS_STARTED_AT = datetime.now(timezone.utc)
 ADMIN_SECURITY = HTTPBasic(auto_error=False)
@@ -468,6 +470,7 @@ async def export_records(
     limit: int = 100,
     published_since: Optional[str] = None,
     published_until: Optional[str] = None,
+    basis: str = "any",
 ):
     limited = _export_rate_limited(request)
     if limited:
@@ -475,7 +478,8 @@ async def export_records(
     conn = get_db()
     try:
         page = export_page(conn, cursor=cursor, limit=limit,
-                           published_since=published_since, published_until=published_until)
+                           published_since=published_since, published_until=published_until,
+                           basis=basis)
     except ExportCursorError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
@@ -659,6 +663,20 @@ async def coverage_api(request: Request):
 
 
 RECENT_MAX_DAYS = 366
+RECENT_BASES = {"any": "any", "dated": "published", "new": "new"}
+
+
+def _release_basis(item: dict, since: Optional[str], until: Optional[str]) -> dict:
+    """Which date put this row in the window, and where that date came from."""
+    published = item.get("published_date")
+    day = str(published)[:10] if published else None
+    if day and (not since or day >= since) and (not until or day <= until):
+        source = item.get("published_date_source") or "page"
+        return {"release_date": day, "release_kind": "Published",
+                "release_source": DATE_SOURCE_LABELS.get(source, source)}
+    newly = item.get("newly_found_at")
+    return {"release_date": str(newly)[:10] if newly else None, "release_kind": "Newly found",
+            "release_source": DATE_SOURCE_LABELS["first_seen"]}
 
 
 def _recent_window(days: Optional[str], since: Optional[str], until: Optional[str]):
@@ -697,16 +715,25 @@ async def recent_releases(
     days: Optional[str] = Query(None, max_length=4),
     since: Optional[str] = Query(None, max_length=10),
     until: Optional[str] = Query(None, max_length=10),
+    basis: str = Query("any", max_length=5),
     page: int = Query(1, ge=1, le=10000),
 ):
-    """Records whose detected published date falls in a window (default 7 days)."""
+    """Records released in a window (default 7 days).
+
+    basis=any (default): dated in the window OR newly found (first seen after
+    the source's baseline crawl) in the window; dated: release date only;
+    new: newly found only.
+    """
+    if basis not in RECENT_BASES:
+        raise HTTPException(status_code=400, detail="basis must be any, dated or new")
     since_value, until_value, day_count = _recent_window(days, since, until)
     page_size = 50
     conn = get_db()
     try:
         documents, total = query_documents_page(
             conn, start_date=since_value, end_date=until_value,
-            sort="published_desc", page=page, page_size=page_size,
+            sort="release_desc", page=page, page_size=page_size,
+            date_basis=RECENT_BASES[basis],
         )
         undated = conn.execute(
             "SELECT COUNT(*) FROM documents WHERE published_date IS NULL OR published_date = ''"
@@ -720,12 +747,20 @@ async def recent_releases(
     base = {"since": since_value} if day_count is None else {"days": day_count}
     if until_value:
         base["until"] = until_value
+    if basis != "any":
+        base["basis"] = basis
+    items = []
+    for row in documents:
+        item = dict(row)
+        item.update(_release_basis(item, since_value, until_value))
+        items.append(item)
     return templates.TemplateResponse(
         request=request,
         name="recent.html",
         context=_template_context(
             request,
-            documents=[dict(row) for row in documents],
+            documents=items,
+            basis=basis,
             total=total,
             undated=undated,
             since=since_value,
@@ -736,7 +771,8 @@ async def recent_releases(
             previous_url=f"/recent?{urlencode({**base, 'page': page - 1})}" if page > 1 else None,
             next_url=f"/recent?{urlencode({**base, 'page': page + 1})}" if page < total_pages else None,
             api_url="/api/v1/records?" + urlencode(
-                {"published_since": since_value, **({"published_until": until_value} if until_value else {})}),
+                {"published_since": since_value, **({"published_until": until_value} if until_value else {}),
+                 **({"basis": basis} if basis != "any" else {})}),
             show_requests_link=requests_table,
         ),
     )

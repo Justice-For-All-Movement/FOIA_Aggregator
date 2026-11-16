@@ -4,25 +4,35 @@
 {% block content %}
 <section class="record-header">
   <p class="eyebrow">Recent releases</p>
-  <h1>{% if days %}Published in the last {{ days }} day{{ '' if days == 1 else 's' }}{% else %}Published {{ since }}{% if until %} to {{ until }}{% else %} or later{% endif %}{% endif %}</h1>
+  <h1>{% if days %}Released in the last {{ days }} day{{ '' if days == 1 else 's' }}{% else %}Released {{ since }}{% if until %} to {{ until }}{% else %} or later{% endif %}{% endif %}</h1>
   <p class="record-subtitle">
-    {{ "{:,}".format(total) }} record{{ '' if total == 1 else 's' }} with a detected published date
+    {{ "{:,}".format(total) }} record{{ '' if total == 1 else 's' }}
+    {% if basis == 'dated' %}with a release date{% elif basis == 'new' %}newly found by our crawler{% else %}dated or newly found{% endif %}
     from {{ since }}{% if until %} to {{ until }}{% else %} onward{% endif %}.
   </p>
 </section>
 
 <section class="panel">
   <p class="results-meta">
-    <strong>Coverage note:</strong> this list only includes sources the archive has crawled, and only
-    records whose publication date could be detected on the source page. {{ "{:,}".format(undated) }}
-    cataloged record{{ '' if undated == 1 else 's' }} with no detected published date
-    {{ 'is' if undated == 1 else 'are' }} excluded. "Published" is the date the source lists, not the
-    date we found it.
+    <strong>Coverage note:</strong> this list only includes sources the archive has crawled.
+    A record appears if its release date falls in the window (taken, in order of preference, from the
+    date shown on the source page, the server's Last-Modified date, or the document's own metadata),
+    or if our crawler first found it in the window <em>after</em> already completing a baseline crawl of
+    that source ("newly found" — a proxy for a new posting, not an official release date). Everything
+    found in a source's first crawl is excluded from "newly found". {{ "{:,}".format(undated) }}
+    cataloged record{{ '' if undated == 1 else 's' }} {{ 'has' if undated == 1 else 'have' }} no release date at all.
   </p>
   <form class="filters" method="get" action="/recent">
     <label>Last
       <select name="days">
         {% for n in [1, 7, 14, 30, 90] %}<option value="{{ n }}" {% if days == n %}selected{% endif %}>{{ n }} day{{ '' if n == 1 else 's' }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Show
+      <select name="basis">
+        <option value="any" {% if basis == 'any' %}selected{% endif %}>dated or newly found</option>
+        <option value="dated" {% if basis == 'dated' %}selected{% endif %}>dated only</option>
+        <option value="new" {% if basis == 'new' %}selected{% endif %}>newly found only</option>
       </select>
     </label>
     <button type="submit">Show</button>
@@ -43,7 +53,7 @@
   {% for doc in documents %}
   <article class="result-card">
     <div class="result-kicker">
-      <span>Published {{ doc.published_date }}</span>
+      <span title="Date source: {{ doc.release_source }}">{{ doc.release_kind }} {{ doc.release_date }} ({{ doc.release_source }})</span>
       <span>• {{ doc.agency_name or 'Federal record' }}</span>
       {% if doc.office_name %}<span>• {{ doc.office_name }}</span>{% endif %}
       <span>• {{ (doc.file_type or 'unknown')|upper }}</span>

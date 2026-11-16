@@ -221,6 +221,30 @@ def _migration_14_third_party_requests(conn: sqlite3.Connection) -> None:
     create_tables(conn)
 
 
+def _migration_15_release_date_sources(conn: sqlite3.Connection) -> None:
+    """Date provenance, first-seen-after-baseline and per-source baselines."""
+    _ensure_columns(conn, "documents", {
+        "published_date_source": "TEXT",
+        "newly_found_at": "TEXT",
+    })
+    _ensure_columns(conn, "reading_rooms", {"baseline_completed_at": "TEXT"})
+    # Existing dates came from listing pages; an already successfully crawled
+    # source has its baseline, so only later discoveries count as new.
+    if "published_date" in _table_columns(conn, "documents"):
+        conn.execute(
+            "UPDATE documents SET published_date_source = 'page' "
+            "WHERE published_date IS NOT NULL AND published_date != '' "
+            "AND published_date_source IS NULL"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_published_date ON documents(published_date)")
+    if "last_successful_crawl_at" in _table_columns(conn, "reading_rooms"):
+        conn.execute(
+            "UPDATE reading_rooms SET baseline_completed_at = last_successful_crawl_at "
+            "WHERE baseline_completed_at IS NULL AND last_successful_crawl_at IS NOT NULL"
+        )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_newly_found ON documents(newly_found_at)")
+
+
 MIGRATIONS: Tuple[
     Tuple[int, str, Callable[[sqlite3.Connection], None]],
     ...,
@@ -239,6 +263,7 @@ MIGRATIONS: Tuple[
     (12, "cross-source identity relations", _migration_12_document_relations),
     (13, "acquisition and work queues", _migration_13_acquisition_and_work_queues),
     (14, "third-party public request metadata", _migration_14_third_party_requests),
+    (15, "release date sources and newly-found baseline", _migration_15_release_date_sources),
 )
 
 
@@ -462,14 +487,20 @@ def insert_document(
     reading_room_id: Optional[int],
     discovered_at: str,
     published_date: Optional[str] = None,
+    published_date_source: Optional[str] = None,
+    newly_found_at: Optional[str] = None,
 ) -> int:
+    if published_date and not published_date_source:
+        published_date_source = "page"
+    if not published_date:
+        published_date_source = None
     cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO documents (
             url, title, file_type, filename, agency_id, office_id, reading_room_id,
-            discovered_at, published_date
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            discovered_at, published_date, published_date_source, newly_found_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             url,
@@ -481,6 +512,8 @@ def insert_document(
             reading_room_id,
             discovered_at,
             published_date,
+            published_date_source,
+            newly_found_at,
         ),
     )
     document_id = cur.lastrowid
@@ -507,13 +540,50 @@ def update_document_published_date_if_missing(
     cur = conn.execute(
         """
         UPDATE documents
-        SET published_date = ?
+        SET published_date = ?, published_date_source = 'page'
         WHERE url = ? AND (published_date IS NULL OR published_date = '')
         """,
         (published_date, url),
     )
     conn.commit()
     return cur.rowcount > 0
+
+
+# Release-date provenance, strongest first. "first_seen" is never stored as
+# published_date; it lives in newly_found_at.
+DATE_SOURCE_RANK = {"page": 3, "header": 2, "metadata": 1}
+DATE_SOURCE_LABELS = {
+    "page": "date shown on the source page",
+    "header": "server Last-Modified date",
+    "metadata": "document metadata date",
+    "first_seen": "first seen by our crawler",
+}
+
+
+def set_document_date(
+    conn: sqlite3.Connection,
+    url: str,
+    published_date: Optional[str],
+    source: str,
+) -> bool:
+    """Set a release date if none is known or ``source`` outranks the current one."""
+    if not published_date or source not in DATE_SOURCE_RANK:
+        return False
+    row = conn.execute(
+        "SELECT published_date, published_date_source FROM documents WHERE url = ?", (url,)
+    ).fetchone()
+    if row is None:
+        return False
+    current = row["published_date"]
+    current_rank = DATE_SOURCE_RANK.get(row["published_date_source"] or "page", 3) if current else 0
+    if DATE_SOURCE_RANK[source] <= current_rank:
+        return False
+    conn.execute(
+        "UPDATE documents SET published_date = ?, published_date_source = ? WHERE url = ?",
+        (published_date, source, url),
+    )
+    conn.commit()
+    return True
 
 
 SORT_ORDERS = {
@@ -526,6 +596,10 @@ SORT_ORDERS = {
     "published_asc": (
         "CASE WHEN d.published_date IS NULL OR d.published_date = '' THEN 1 ELSE 0 END ASC, "
         "d.published_date ASC, d.id ASC"
+    ),
+    "release_desc": (
+        "MAX(COALESCE(d.published_date, ''), COALESCE(substr(d.newly_found_at, 1, 10), '')) DESC, "
+        "d.id DESC"
     ),
     "title_asc": "LOWER(COALESCE(d.title, d.filename, '')) ASC, d.id ASC",
     "title_desc": "LOWER(COALESCE(d.title, d.filename, '')) DESC, d.id DESC",
@@ -559,7 +633,10 @@ def _document_filter_sql(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     title_query: Optional[str] = None,
+    date_basis: str = "published",
 ) -> tuple[List[str], List[Any]]:
+    """``date_basis``: "published" (dated only), "any" (dated or newly found
+    in range) or "new" (newly found after a source baseline, in range)."""
     clauses = ["1=1"]
     params: List[Any] = []
 
@@ -598,14 +675,30 @@ def _document_filter_sql(
     if file_type:
         clauses.append("d.file_type = ?")
         params.append(file_type)
-    if start_date or end_date:
+    if (start_date or end_date) and date_basis in ("any", "new"):
+        parts, part_params = [], []
+        for column, enabled in (("d.published_date", date_basis == "any"),
+                                ("substr(d.newly_found_at, 1, 10)", True)):
+            if not enabled:
+                continue
+            bounds = [f"{column} IS NOT NULL AND {column} != ''"]
+            if start_date:
+                bounds.append(f"{column} >= ?")
+                part_params.append(start_date)
+            if end_date:
+                bounds.append(f"{column} <= ?")
+                part_params.append(end_date)
+            parts.append("(" + " AND ".join(bounds) + ")")
+        clauses.append("(" + " OR ".join(parts) + ")")
+        params.extend(part_params)
+    elif start_date or end_date:
         clauses.append("d.published_date IS NOT NULL AND d.published_date != ''")
-    if start_date:
-        clauses.append("d.published_date >= ?")
-        params.append(start_date)
-    if end_date:
-        clauses.append("d.published_date <= ?")
-        params.append(end_date)
+        if start_date:
+            clauses.append("d.published_date >= ?")
+            params.append(start_date)
+        if end_date:
+            clauses.append("d.published_date <= ?")
+            params.append(end_date)
     if title_query:
         raw_query = title_query.strip()
         escaped = _escape_like(raw_query)
@@ -649,6 +742,7 @@ def count_documents(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     title_query: Optional[str] = None,
+    date_basis: str = "published",
 ) -> int:
     clauses, params = _document_filter_sql(
         agency_id=agency_id,
@@ -657,6 +751,7 @@ def count_documents(
         start_date=start_date,
         end_date=end_date,
         title_query=title_query,
+        date_basis=date_basis,
     )
     row = conn.execute(
         "SELECT COUNT(*) AS total FROM documents d WHERE " + " AND ".join(clauses),
@@ -673,6 +768,7 @@ def query_documents(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     title_query: Optional[str] = None,
+    date_basis: str = "published",
     sort: str = "discovered_desc",
     limit: Optional[int] = 200,
     offset: int = 0,
@@ -690,11 +786,13 @@ def query_documents(
         start_date=start_date,
         end_date=end_date,
         title_query=title_query,
+        date_basis=date_basis,
     )
     order_by = SORT_ORDERS.get(sort, SORT_ORDERS["discovered_desc"])
 
     query = [
         "SELECT d.id, d.title, d.filename, d.file_type, d.published_date,",
+        "       d.published_date_source, d.newly_found_at,",
         "       d.discovered_at, d.local_path, d.storage_backend, d.storage_key,",
         "       d.url, d.download_status, d.download_error, d.file_size,",
         "       a.name AS agency_name, o.name AS office_name",
@@ -1009,6 +1107,8 @@ def get_document_detail(
             d.filename,
             d.file_type,
             d.published_date,
+            d.published_date_source,
+            d.newly_found_at,
             d.discovered_at,
             d.downloaded_at,
             d.mime_type,
@@ -1078,6 +1178,7 @@ def query_documents_page(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     title_query: Optional[str] = None,
+    date_basis: str = "published",
     sort: str = "discovered_desc",
     page: int = 1,
     page_size: int = 50,
@@ -1092,6 +1193,7 @@ def query_documents_page(
         start_date=start_date,
         end_date=end_date,
         title_query=title_query,
+        date_basis=date_basis,
     )
     rows = query_documents(
         conn,
@@ -1101,6 +1203,7 @@ def query_documents_page(
         start_date=start_date,
         end_date=end_date,
         title_query=title_query,
+        date_basis=date_basis,
         sort=sort,
         limit=page_size,
         offset=(page - 1) * page_size,
@@ -1303,11 +1406,12 @@ def record_reading_room_crawl_success(
         UPDATE reading_rooms
         SET last_crawled_at = ?,
             last_successful_crawl_at = ?,
+            baseline_completed_at = COALESCE(baseline_completed_at, ?),
             last_error = NULL,
             last_error_at = NULL
         WHERE id = ?
         """,
-        (timestamp, timestamp, rr_id),
+        (timestamp, timestamp, timestamp, rr_id),
     )
     conn.commit()
 

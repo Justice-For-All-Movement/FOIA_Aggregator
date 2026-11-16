@@ -150,7 +150,7 @@
             <span>{{ doc.agency_name or 'Federal record' }}</span>
             {% if doc.office_name %}<span>• {{ doc.office_name }}</span>{% endif %}
             <span>• {{ (doc.file_type or 'unknown')|upper }}</span>
-            {% if doc.published_date %}<span>• Published {{ doc.published_date }}</span>{% endif %}
+            {% if doc.published_date %}<span>• Published {{ doc.published_date }} ({{ date_source_label(doc.published_date_source) }})</span>{% endif %}
           </div>
 
           <a class="result-title" href="/record/{{ doc.id }}">{{ doc.title or doc.filename or 'Untitled record' }}</a>

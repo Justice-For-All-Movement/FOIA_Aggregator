@@ -16,7 +16,7 @@ concurrency:
 jobs:
   probe:
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 35
     env:
       PYTHONPATH: .
     steps:

@@ -12,13 +12,14 @@ import tempfile
 import time
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Deque, Dict, List, Optional, Set, TypedDict
 from urllib.parse import unquote, urljoin, urlparse, urlunparse
 
 import requests
+from pypdf import PdfReader
 from bs4 import BeautifulSoup
 
 from .archive_storage import (
@@ -45,7 +46,7 @@ from .storage import (
     list_reading_rooms,
     record_reading_room_crawl_failure,
     record_reading_room_crawl_success,
-    update_document_published_date_if_missing,
+    set_document_date,
     update_download_failure,
     update_download_metadata,
     upsert_document_text,
@@ -1358,6 +1359,133 @@ def _download_retry_due(
     return age_minutes >= cooldown_minutes
 
 
+def _row_value(row, key):
+    if row is None:
+        return None
+    try:
+        return row[key] if key in row.keys() else None
+    except (IndexError, KeyError):
+        return None
+
+
+def _head_probe_budget(config: Config) -> int:
+    try:
+        value = int(config.crawler.get("max_head_date_probes_per_source", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(value, 500))
+
+
+def _begin_date_probes(config: Config, rate_limiter, session) -> None:
+    """Per-source state for bounded Last-Modified probes (reset each source)."""
+    config.data["_date_probe"] = {
+        "remaining": _head_probe_budget(config), "cache": {},
+        "rate_limiter": rate_limiter, "session": session,
+        "probed": 0, "found": 0,
+    }
+
+
+def _parse_http_date(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    try:
+        stamp = parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+    if stamp is None:
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    if stamp > now + timedelta(days=1) or stamp.year < 1990:
+        return None
+    return stamp.date().isoformat()
+
+
+def _head_last_modified(url: str, config: Config, rate_limiter, session=None) -> Optional[str]:
+    """One polite HEAD (honest UA, SSRF-safe redirects); Last-Modified as a date.
+
+    Any error, denial or missing header simply yields no date: a HEAD is
+    never retried with other headers.
+    """
+    headers = _request_headers(config)
+    timeout = min(15.0, float(config.crawler.get("page_timeout_seconds", 30)))
+    max_redirects = int(config.downloader.get("max_redirects", 5))
+    current = url
+    try:
+        for _ in range(max_redirects + 1):
+            _validate_public_destination(current)
+            if rate_limiter is not None:
+                rate_limiter.wait(current)
+            requester = session.head if session is not None else requests.head
+            response = requester(current, headers=headers, timeout=timeout, allow_redirects=False)
+            try:
+                status = getattr(response, "status_code", 200)
+                response_headers = getattr(response, "headers", {}) or {}
+                location = response_headers.get("Location") or response_headers.get("location")
+                last_modified = (response_headers.get("Last-Modified")
+                                 or response_headers.get("last-modified"))
+            finally:
+                _close_response(response)
+            if status in REDIRECT_STATUS_CODES and location:
+                current = urljoin(current, location)
+                continue
+            return _parse_http_date(last_modified) if 200 <= status < 300 else None
+    except Exception:  # noqa: BLE001 - a missing date is not a crawl failure
+        return None
+    return None
+
+
+def _candidate_date(conn, canonical: str, page_date: Optional[str], existing, config: Optional[Config]):
+    """Best known release date and its source: page > header (HEAD probe)."""
+    if page_date:
+        return page_date, "page"
+    if existing is not None:
+        known = _row_value(existing, "published_date")
+        return (known, _row_value(existing, "published_date_source") or "page") if known else (None, None)
+    state = (config.data.get("_date_probe") if config is not None else None) or None
+    if not state:
+        return None, None
+    if canonical in state["cache"]:
+        return state["cache"][canonical]
+    if state["remaining"] <= 0:
+        return None, None
+    state["remaining"] -= 1
+    state["probed"] += 1
+    found = _head_last_modified(canonical, config, state["rate_limiter"], state["session"])
+    totals = config.data.setdefault("_date_probe_totals", {"probed": 0, "found": 0})
+    totals["probed"] += 1
+    if found:
+        state["found"] += 1
+        totals["found"] += 1
+    result = (found, "header") if found else (None, None)
+    state["cache"][canonical] = result
+    return result
+
+
+def _newly_found_stamp(rr) -> Optional[str]:
+    """First-seen time counts as a release proxy only after a source baseline."""
+    return datetime.now(timezone.utc).isoformat() if _row_value(rr, "baseline_completed_at") else None
+
+
+def _pdf_metadata_date(path: Path) -> Optional[str]:
+    """ModDate (else CreationDate) from PDF metadata, as YYYY-MM-DD."""
+    try:
+        metadata = PdfReader(str(path)).metadata or {}
+        for key in ("/ModDate", "/CreationDate"):
+            raw = str(metadata.get(key) or "")
+            match = re.match(r"^D?:?(\d{4})(\d{2})(\d{2})", raw)
+            if not match:
+                continue
+            value = datetime(int(match.group(1)), int(match.group(2)), int(match.group(3)),
+                             tzinfo=timezone.utc)
+            if 1990 <= value.year and value <= datetime.now(timezone.utc) + timedelta(days=1):
+                return value.date().isoformat()
+    except Exception:  # noqa: BLE001 - malformed metadata yields no date
+        return None
+    return None
+
+
 def _candidate_counts_toward_source_limit(
     conn,
     url: str,
@@ -1365,6 +1493,7 @@ def _candidate_counts_toward_source_limit(
     dry_run: bool,
     config: Optional[Config] = None,
     published_date: Optional[str] = None,
+    rr=None,
 ) -> bool:
     """Return whether a candidate should consume the per-source document quota.
 
@@ -1384,8 +1513,10 @@ def _candidate_counts_toward_source_limit(
     existing = get_document_by_url(conn, canonical)
     window = pw.window_from_config(config) if config is not None else None
     if window is not None:
-        effective = published_date or (existing["published_date"] if existing is not None else None)
-        if not window.admits(effective):
+        effective, _ = _candidate_date(conn, canonical, published_date, existing, config)
+        newly = (_row_value(existing, "newly_found_at") if existing is not None
+                 else _newly_found_stamp(rr))
+        if not window.admits_record(effective, newly):
             return False
     if existing is None:
         return True
@@ -1421,10 +1552,14 @@ def _process_document_candidate(
     existing = get_document_by_url(conn, canonical)
     is_new = existing is None
     filename_hint = _filename_hint(canonical, title, file_type)
+    candidate_date, candidate_date_source = _candidate_date(
+        conn, canonical, published_date, existing, config
+    )
+    newly_found_at = _row_value(existing, "newly_found_at")
 
     missing_archive_file = False
     if existing:
-        update_document_published_date_if_missing(conn, canonical, published_date)
+        set_document_date(conn, canonical, published_date, "page")
         doc_id = existing["id"]
         associate_document_source(
             conn,
@@ -1473,6 +1608,7 @@ def _process_document_candidate(
             )
             return False
     else:
+        newly_found_at = _newly_found_stamp(rr)
         doc_id = insert_document(
             conn,
             url=canonical,
@@ -1483,16 +1619,15 @@ def _process_document_candidate(
             office_id=rr["office_id"],
             reading_room_id=rr["id"],
             discovered_at=datetime.utcnow().isoformat(),
-            published_date=published_date,
+            published_date=candidate_date,
+            published_date_source=candidate_date_source,
+            newly_found_at=newly_found_at,
         )
 
     window = pw.window_from_config(config)
     if window is not None:
-        effective_date = published_date or (
-            existing["published_date"] if existing is not None else None
-        )
-        verdict = window.classify(effective_date)
-        admitted = window.admits(effective_date)
+        verdict = window.classify_record(candidate_date, newly_found_at)
+        admitted = window.admits_record(candidate_date, newly_found_at)
         pw.record(config, verdict, admitted=admitted)
         if not admitted:
             # Metadata recorded above; binary download is outside the window.
@@ -1586,6 +1721,9 @@ def _process_document_candidate(
                     )
                 ),
             )
+            metadata_date = (
+                _pdf_metadata_date(result.path) if effective_file_type == "pdf" else None
+            )
 
             current_usage = (
                 archived_remote_bytes(conn, archive_storage.name)
@@ -1623,6 +1761,9 @@ def _process_document_candidate(
                 storage_backend=location.backend,
                 storage_key=location.key,
             )
+            if metadata_date:
+                # Lowest-ranked source: only fills an otherwise unknown date.
+                set_document_date(conn, canonical, metadata_date, "metadata")
             upsert_document_text(
                 conn,
                 doc_id,
@@ -1774,6 +1915,7 @@ def _crawl_pal_reading_room(
                     dry_run=dry_run,
                     config=config,
                     published_date=folder.published_date,
+                    rr=rr,
                 )
                 if (
                     max_docs is not None
@@ -1870,6 +2012,7 @@ def _crawl_reading_room_with_connection(
             float(config.crawler.get("per_host_delay_seconds", 0))
         )
 
+    _begin_date_probes(config, rate_limiter, None)
     if is_pal_reading_room(root_url):
         _crawl_pal_reading_room(
             conn,
@@ -1888,6 +2031,7 @@ def _crawl_reading_room_with_connection(
             "1", "true", "yes", "on"
         }
     crawl_session = requests.Session() if preserve_session else None
+    config.data["_date_probe"]["session"] = crawl_session
 
     max_pages = max(1, int(config.crawler.get("max_pages_per_source", 50)))
     max_depth = max(0, int(config.crawler.get("max_depth", 3)))
@@ -1954,6 +2098,7 @@ def _crawl_reading_room_with_connection(
                         dry_run=dry_run,
                         config=config,
                         published_date=target.published_date,
+                        rr=rr,
                     )
                     if (
                         max_docs is not None
@@ -2043,6 +2188,7 @@ def _crawl_reading_room_with_connection(
                 dry_run=dry_run,
                 config=config,
                 published_date=link.get("published_date"),
+                rr=rr,
             )
             if (
                 max_docs is not None

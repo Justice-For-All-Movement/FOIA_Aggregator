@@ -173,8 +173,8 @@ class WindowCrawlTests(unittest.TestCase):
         self.assertEqual(set(rows), {"old.pdf", "undated.pdf", "new-a.pdf", "later.pdf", "new-b.pdf"})
         self.assertEqual(rows["new-b.pdf"], "2026-11-14")
         self.assertIsNone(rows["undated.pdf"])
-        self.assertEqual(pw.stats(config), {"in_window": 2, "unknown_date": 1, "out_of_window": 2,
-                                            "admitted": 2, "skipped_download": 3})
+        self.assertEqual(pw.stats(config), {"in_window": 2, "newly_found": 0, "unknown_date": 1,
+                                            "out_of_window": 2, "admitted": 2, "skipped_download": 3})
 
     def test_in_window_documents_are_prioritized_and_skips_do_not_consume_quota(self):
         downloads, rows = self._crawl(self._config(), max_docs=1)

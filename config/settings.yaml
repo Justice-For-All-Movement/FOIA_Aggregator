@@ -10,6 +10,9 @@ crawler:
   page_timeout_seconds: 30
   page_max_size_mb: 5
   per_host_delay_seconds: 0.5
+  # Release-date fallback: polite HEAD requests per source per crawl to read
+  # Last-Modified for links whose page shows no date (0 disables).
+  max_head_date_probes_per_source: 25
   user_agent: "FOIAArchiveBot/0.1 (+https://github.com/Justice-For-All-Movement/FOIA_Aggregator)"
   # Some public agency/CDN configurations reject non-browser HTTP clients even
   # for otherwise public reading rooms. Retry a 403 once with ordinary

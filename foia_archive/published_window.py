@@ -20,6 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 IN_WINDOW = "in_window"
+NEWLY_FOUND = "newly_found"
 UNKNOWN = "unknown_date"
 OUT_OF_WINDOW = "out_of_window"
 STATS_KEY = "_published_window_stats"
@@ -59,6 +60,18 @@ class PublishedWindow:
     def admits(self, published_date: Optional[str]) -> bool:
         verdict = self.classify(published_date)
         return verdict == IN_WINDOW or (verdict == UNKNOWN and self.include_unknown)
+
+    def classify_record(self, published_date: Optional[str], newly_found_at: Optional[str]) -> str:
+        """Dated in window wins; otherwise "newly found" (first seen after the
+        source's baseline crawl, within the window) is a release proxy."""
+        verdict = self.classify(published_date)
+        if verdict != IN_WINDOW and newly_found_at and self.classify(newly_found_at) == IN_WINDOW:
+            return NEWLY_FOUND
+        return verdict
+
+    def admits_record(self, published_date: Optional[str], newly_found_at: Optional[str]) -> bool:
+        verdict = self.classify_record(published_date, newly_found_at)
+        return verdict in (IN_WINDOW, NEWLY_FOUND) or (verdict == UNKNOWN and self.include_unknown)
 
     def as_dict(self) -> Dict[str, Any]:
         return {"since": self.since, "until": self.until, "include_unknown": self.include_unknown}
@@ -109,7 +122,7 @@ def window_from_config(config) -> Optional[PublishedWindow]:
 
 def record(config, verdict: str, *, admitted: bool) -> None:
     stats = config.data.setdefault(STATS_KEY, {
-        IN_WINDOW: 0, UNKNOWN: 0, OUT_OF_WINDOW: 0, "admitted": 0, "skipped_download": 0,
+        IN_WINDOW: 0, NEWLY_FOUND: 0, UNKNOWN: 0, OUT_OF_WINDOW: 0, "admitted": 0, "skipped_download": 0,
     })
     stats[verdict] = stats.get(verdict, 0) + 1
     stats["admitted" if admitted else "skipped_download"] += 1
@@ -117,7 +130,7 @@ def record(config, verdict: str, *, admitted: bool) -> None:
 
 def stats(config) -> Dict[str, int]:
     return dict(config.data.get(STATS_KEY) or {
-        IN_WINDOW: 0, UNKNOWN: 0, OUT_OF_WINDOW: 0, "admitted": 0, "skipped_download": 0,
+        IN_WINDOW: 0, NEWLY_FOUND: 0, UNKNOWN: 0, OUT_OF_WINDOW: 0, "admitted": 0, "skipped_download": 0,
     })
 
 
@@ -126,3 +139,7 @@ def priority(window: Optional[PublishedWindow], published_date: Optional[str]) -
     if window is None:
         return 0
     return {IN_WINDOW: 0, UNKNOWN: 1, OUT_OF_WINDOW: 2}[window.classify(published_date)]
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
