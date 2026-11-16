@@ -9,7 +9,7 @@
   ],
   "schemaVersion": 1,
   "roadmapVersion": 2,
-  "observedAt": "2026-11-16T02:11:04.000Z",
+  "observedAt": "2026-11-16T02:32:05.000Z",
   "units": [
     {
       "id": "FA-001",
@@ -259,7 +259,8 @@
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-05",
       "contributingPrs": [
         78,
-        82
+        82,
+        86
       ],
       "dependsOn": [
         "FC-02",
@@ -268,7 +269,7 @@
       ],
       "externalDependencies": [],
       "externalPrerequisites": [],
-      "mappingEvidence": "Date-window backfill plans, oldest-first missed-period queue, verified window spans, per-source release windows (#78, fixtures). Depends on FC-04; live backfill pending. Published-date window crawl (--since-days, dispatch inputs) and bounded live probe (#82); live probe found no detectable published dates on 8 reached listing pages."
+      "mappingEvidence": "Date-window backfill plans, oldest-first missed-period queue, verified window spans, per-source release windows (#78, fixtures). Depends on FC-04; live backfill pending. Published-date window crawl (--since-days, dispatch inputs) and bounded live probe (#82); live probe found no detectable published dates on 8 reached listing pages. Release-date sources (page > Last-Modified > PDF metadata) and newly-found-after-baseline window downloads (#86); live probe: 223 of 226 links carried Last-Modified."
     },
     {
       "id": "FC-06",
@@ -466,6 +467,36 @@
     }
   ],
   "pullRequests": [
+    {
+      "id": 5329920353,
+      "number": 86,
+      "title": "Release-date sources (page/Last-Modified/PDF metadata) and newly-found-after-baseline",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/86",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-16T02:22:39.000Z",
+      "updatedAt": "2026-11-16T02:32:05.000Z",
+      "closedAt": "2026-11-16T02:32:05.000Z",
+      "mergedAt": "2026-11-16T02:32:05.000Z",
+      "headSha": "54cafa3316ab412346c3923d5d58ae7a0e939631",
+      "baseRef": "main",
+      "mergeCommitSha": "f37dd84f3e2ba3b9dddc4b31b18171607b5d38b9"
+    },
+    {
+      "id": 5329823881,
+      "number": 85,
+      "title": "registry/handoff: record PRs #81-#84 and live probe evidence",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/85",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-16T02:11:51.000Z",
+      "updatedAt": "2026-11-16T02:14:08.000Z",
+      "closedAt": "2026-11-16T02:14:08.000Z",
+      "mergedAt": "2026-11-16T02:14:07.000Z",
+      "headSha": "3eecdac9fca9f15cf2906ba1935ffaa23a8293a8",
+      "baseRef": "main",
+      "mergeCommitSha": "157002de63970b8248001d7b6e4426b760e86ce3"
+    },
     {
       "id": 5329799095,
       "number": 84,

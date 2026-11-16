@@ -62,6 +62,12 @@ remain subject to their audit, upload, single-writer and live acceptance gates.
 - Presentation Render free service is ephemeral/read-only and must load a separately verified B2 metadata checkpoint. Web heartbeat does not mean authoritative crawling happened.
 - The paid future ~1 TB tier requires explicit user approval; meanwhile metadata/source catalog coverage should expand without mislabeling remote-only records as archived.
 
+## Fourth checkpoint — 2026-11-16 (release-date sources, newly found; PR #86)
+
+#86 (schema **15**, additive): `documents.published_date_source` (page > header > metadata), `documents.newly_found_at`, `reading_rooms.baseline_completed_at` (backfilled from `last_successful_crawl_at`). Window crawls download items dated in the window or first seen after a completed baseline; `/recent` and `/api/v1/records` default to "dated or newly found" with per-row date source. #85 recorded #81–#84.
+
+**Live probe (same 10 sources, dry run, HEAD ≤200/source, 2 s/host):** 226 links; **223 got a Last-Modified date** (3 undated: CIA 2, State 1), 0 page dates. 1 link fell in the last 7 days — an FBI Vault footer link to fbijobs.gov (`eeoc_policy.pdf`, file path 2022-07, Last-Modified 2026-11-15), i.e. Last-Modified reflects server/CDN changes and is a weak proxy. 8 sources completed a baseline in the run, so newly found = 0 by design; "newly found" results appear only on later crawls that discover new links. MuckRock still BLOCKED (Cloudflare 403, no token).
+
 ## Third checkpoint — 2026-11-16 (date-range releases and requests; PRs #82–#84)
 
 Owner priority: "everything released in the last week". `main` after #84: full suite OK (474 tests), schema version **14** (additive `third_party_requests`). Main stays deployable without B2.
