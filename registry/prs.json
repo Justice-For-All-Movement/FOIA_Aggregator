@@ -9,7 +9,7 @@
   ],
   "schemaVersion": 1,
   "roadmapVersion": 2,
-  "observedAt": "2026-11-16T02:32:05.000Z",
+  "observedAt": "2026-11-16T20:22:21.000Z",
   "units": [
     {
       "id": "FA-001",
@@ -188,13 +188,15 @@
         70
       ],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-01",
-      "contributingPrs": [],
+      "contributingPrs": [
+        88
+      ],
       "dependsOn": [
         "FA-005"
       ],
       "externalDependencies": [],
       "externalPrerequisites": [],
-      "mappingEvidence": "Inventory builder (official census + 18 IC + third-party registry, stable source IDs, access/enumeration state, counts) merged via #70. Live census verification pending."
+      "mappingEvidence": "Inventory builder (official census + 18 IC + third-party registry, stable source IDs, access/enumeration state, counts) merged via #70. Live census verification pending. Broad live probe enumerates every FOIA.gov publication source (366 incl. supplemental/IC) sharded across runners; linked FOIAXpress PAL rooms auto-registered (#88)."
     },
     {
       "id": "FC-02",
@@ -204,14 +206,16 @@
         70
       ],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-02",
-      "contributingPrs": [],
+      "contributingPrs": [
+        88
+      ],
       "dependsOn": [
         "FA-006",
         "FC-01"
       ],
       "externalDependencies": [],
       "externalPrerequisites": [],
-      "mappingEvidence": "Persistent per-page cursors, dedupe, date windows, BLOCKED/cycle handling merged via #70 (fixtures). Live sampled full traversal pending."
+      "mappingEvidence": "Persistent per-page cursors, dedupe, date windows, BLOCKED/cycle handling merged via #70 (fixtures). Live sampled full traversal pending. robots.txt (RFC 9309) enforced on every request with Crawl-delay; PAL CAPTCHA and robots denials recorded as BLOCKED; browser-header 403 retry off by default (#88)."
     },
     {
       "id": "FC-03",
@@ -260,7 +264,8 @@
       "contributingPrs": [
         78,
         82,
-        86
+        86,
+        88
       ],
       "dependsOn": [
         "FC-02",
@@ -269,7 +274,7 @@
       ],
       "externalDependencies": [],
       "externalPrerequisites": [],
-      "mappingEvidence": "Date-window backfill plans, oldest-first missed-period queue, verified window spans, per-source release windows (#78, fixtures). Depends on FC-04; live backfill pending. Published-date window crawl (--since-days, dispatch inputs) and bounded live probe (#82); live probe found no detectable published dates on 8 reached listing pages. Release-date sources (page > Last-Modified > PDF metadata) and newly-found-after-baseline window downloads (#86); live probe: 223 of 226 links carried Last-Modified."
+      "mappingEvidence": "Date-window backfill plans, oldest-first missed-period queue, verified window spans, per-source release windows (#78, fixtures). Depends on FC-04; live backfill pending. Published-date window crawl (--since-days, dispatch inputs) and bounded live probe (#82); live probe found no detectable published dates on 8 reached listing pages. Release-date sources (page > Last-Modified > PDF metadata) and newly-found-after-baseline window downloads (#86); live probe: 223 of 226 links carried Last-Modified. Page-level baselines remove false newly-found from deeper traversal; dynamic Last-Modified ignored; live probe 236/366 sources reached, 9,796 links, 4,137 dated, ~1.35 GB/week (7-day Content-Length estimate) (#88)."
     },
     {
       "id": "FC-06",
@@ -278,14 +283,15 @@
       "prs": [],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-06",
       "contributingPrs": [
-        78
+        78,
+        88
       ],
       "dependsOn": [
         "FC-02"
       ],
       "externalDependencies": [],
       "externalPrerequisites": [],
-      "mappingEvidence": "Site-type detection, challenge/403 -> BLOCKED, sitemap-tree and JSON listing adapters (#78, fixtures). Audited live field sample pending."
+      "mappingEvidence": "Site-type detection, challenge/403 -> BLOCKED, sitemap-tree and JSON listing adapters (#78, fixtures). Audited live field sample pending. RSS/Atom feed autodiscovery, FBI Vault Recently-added feed (Plone files), host-parallel engine (#88)."
     },
     {
       "id": "FC-07",
@@ -467,6 +473,21 @@
     }
   ],
   "pullRequests": [
+    {
+      "id": 5343722807,
+      "number": 88,
+      "title": "Broad FOIA.gov coverage, robots compliance, zero-budget storage and zero-key catalog snapshots",
+      "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/88",
+      "state": "closed",
+      "draft": false,
+      "createdAt": "2026-11-16T19:35:35.000Z",
+      "updatedAt": "2026-11-16T20:22:21.000Z",
+      "closedAt": "2026-11-16T20:22:21.000Z",
+      "mergedAt": "2026-11-16T20:22:21.000Z",
+      "headSha": "757f32d8e0c6ef2732fe09f5a788c9f8a24de21b",
+      "baseRef": "main",
+      "mergeCommitSha": "d7435eee3893c0a0e44445e1fb99c16c702ab2ca"
+    },
     {
       "id": 5329920353,
       "number": 86,

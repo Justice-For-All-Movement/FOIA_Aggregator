@@ -2,6 +2,27 @@
 
 **Snapshot:** November 15, 2026, second checkpoint (after PRs #75–#79; refreshed from the GitHub REST API). Earlier sections are retained as dated history. Refresh all claims before execution; this is a recorded checkpoint, not a live dashboard.
 
+## November 16, 2026 — PR #88: broad coverage, zero-budget storage, zero-key snapshots
+
+Merged (squash `d7435ee`; every check run on head `757f32d` concluded success).
+**Code complete and integrated; not yet data-synchronized or deployed with data.**
+
+- Live probe (PR head, dry run, metadata + bounded HEADs, robots-compliant, 4 shards):
+  366 FOIA.gov/supplemental sources; 236 reached, 129 failed (76 HTTP 403 BLOCKED,
+  13 robots.txt/unreachable robots, 24 HTTP 404/406, 15 DNS, 1 oversize page), 1 not attempted;
+  9,796 document links, 4,137 dated (4,110 via Last-Modified), 107 dated in the last 7 days,
+  171 in 30 days; 4,165 sized by Content-Length. Estimated new releases ≈1.35 GB per week
+  (7-day sized + unsized×median 422 KB; dominated by FBI Vault 0.84 GB and one 368 MB CFPB dataset),
+  ≈0.40 GB/week averaged over 30 days. Metadata-only SQLite ≈1.8 KB/record (17.5 MB for 9.8k links).
+- FOIAXpress PAL rooms (EPA, NTSB, Air Force) now gate search behind a visitor CAPTCHA and are
+  recorded BLOCKED (not evaded). MuckRock listing still 403 without a token.
+- New: `Catalog crawl` workflow (single writer, zero keys → GitHub Release `catalog-snapshot`,
+  newest 3 kept); container installs the newest snapshot at startup; S3-compatible storage
+  (`FOIA_S3_*`, B2 aliases); originals budget policy with `text_only` records; optional Wayback
+  preservation. Owner steps: [OWNER_QUICKSTART.md](OWNER_QUICKSTART.md).
+- Not yet done: first Catalog crawl run (owner dispatch/variable; agents cannot dispatch),
+  Render restart to load the snapshot, live S3/R2/Oracle and Wayback acceptance.
+
 ## Authoritative documents
 - [Full development plan](DEVELOPMENT_PLAN.md): 10 approved operational FA units plus 14 added FC broad-coverage deliverables.
 - [Agent operating rules](../AGENTS.md).
