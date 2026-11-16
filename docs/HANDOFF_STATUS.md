@@ -62,6 +62,23 @@ remain subject to their audit, upload, single-writer and live acceptance gates.
 - Presentation Render free service is ephemeral/read-only and must load a separately verified B2 metadata checkpoint. Web heartbeat does not mean authoritative crawling happened.
 - The paid future ~1 TB tier requires explicit user approval; meanwhile metadata/source catalog coverage should expand without mislabeling remote-only records as archived.
 
+## Third checkpoint — 2026-11-16 (date-range releases and requests; PRs #82–#84)
+
+Owner priority: "everything released in the last week". `main` after #84: full suite OK (474 tests), schema version **14** (additive `third_party_requests`). Main stays deployable without B2.
+
+| PR | What | Level |
+| --- | --- | --- |
+| #82 | `main.py run --since-days N` / `--published-since/--published-until` / `--include-unknown-dates`; `refresh-corpus.yml` dispatch inputs (default 7 days, single-writer group); labeled Posted/Released text dates; `live-probe.yml` | code + CI live probe |
+| #83 | `/recent?days=7`, `/recent?since=&until=`, `/api/v1/records?published_since=&published_until=` | code; no real data loaded |
+| #84 | FC-04 request listing: `main.py muckrock-requests --since-days 7`, `/requests`, `/api/v1/requests`; token-gated (`MUCKROCK_API_TOKEN`) | code; live access BLOCKED |
+| #81 | draft duplicate of #82, closed unmerged | — |
+
+**Live acceptance probe (GitHub runner, 2026-11-16, dry run, no downloads, no B2):**
+* Window crawl through the real engine path, 10 public reading rooms, 3 pages/source, 2 s/host: 8 reached (DOJ OIP, CIA, FBI Vault, DHS, NARA, State, DOL, ODNI); NSA **403 BLOCKED**; EPA root URL **404**. 226 document links cataloged, **0 with a detectable published date** → 0 in the 7-day (and 30-day) window. DHS/NARA listings show only unlabeled document dates (deliberately not used as publication dates).
+* MuckRock: robots allows `*` (Content-Signal ai-train=no); every API URL returns **Cloudflare 403 "Attention Required"** to runner IPs → `muckrock-requests` live run recorded **BLOCKED** (no token configured). API shape documented from MuckRock's public source in [FC04_MUCKROCK_ADAPTER.md](FC04_MUCKROCK_ADAPTER.md).
+
+**Not yet true:** no last-week releases are in the live site. Needed: a windowed `refresh-corpus` dispatch with B2 secrets (single writer), a published checkpoint the Render service loads, and sources that expose publication dates (most probed ones do not; per-source date parsers or document-page dates are the next step). MuckRock listing needs an owner API token and a network Cloudflare does not block.
+
 ## Second checkpoint — 2026-11-15 (downstream asks + FC-05..FC-14 foundations)
 
 `main` after #79: **445 tests, OK**; schema version **13**. No open PRs besides the one carrying this document. Main stays deployable without B2 (all new tables are additive; web reads guard missing tables).
