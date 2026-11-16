@@ -119,12 +119,50 @@ def muckrock_discovery(cfg) -> None:
         out(f"  api_v2 root: {json.dumps(root)[:500]}")
 
 
+MUCKROCK_SOURCE_FILES = (
+    "muckrock/foia/api_v2/viewsets.py",
+    "muckrock/foia/api_v2/serializers.py",
+    "muckrock/foia/api_v2/filters.py",
+    "muckrock/core/api_v2/pagination.py",
+    "muckrock/settings/base.py",
+)
+SOURCE_HINTS = ("filter", "ordering", "fields", "class ", "permission", "throttl", "datetime",
+                "page_size", "cursor", "authentication", "lookup_expr", "status", "router", "DEFAULT_")
+
+
+def muckrock_source(cfg) -> None:
+    """Read MuckRock's public open-source API definition (raw GitHub files)."""
+    out("## MuckRock API v2 shape from public source (github.com/MuckRock/muckrock)")
+    limiter = HostRateLimiter(1.0)
+    for path in MUCKROCK_SOURCE_FILES:
+        url = f"https://raw.githubusercontent.com/MuckRock/muckrock/master/{path}"
+        try:
+            status, _, _, text = fetch_text(url, cfg, limiter, accept="text/plain", max_bytes=600_000)
+        except Exception as exc:  # noqa: BLE001
+            out(f"ERROR {path}: {type(exc).__name__}")
+            continue
+        out(f"### {path} -> {status} ({len(text)} bytes)")
+        if status != 200:
+            continue
+        settings_file = path.endswith("settings/base.py")
+        for number, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if settings_file and not any(t in stripped for t in ("REST_FRAMEWORK", "THROTTLE", "PAGE_SIZE", "DEFAULT_", "rest_framework")):
+                continue
+            if settings_file or any(t in stripped.lower() for t in SOURCE_HINTS):
+                out(f"  {number:4}: {stripped[:170]}")
+
+
 def main() -> None:
     cfg = load_config(os.getenv("FOIA_CONFIG", "config/settings.yaml"))
     sections = sys.argv[1:] or ["muckrock-discovery"]
     for section in sections:
         if section == "muckrock-discovery":
             muckrock_discovery(cfg)
+        elif section == "muckrock-source":
+            muckrock_source(cfg)
     summary = os.getenv("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
