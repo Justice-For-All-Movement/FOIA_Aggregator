@@ -259,6 +259,90 @@ def window_crawl(cfg_path: str, days: int) -> None:
             conn.close()
 
 
+FEED_CANDIDATES = (
+    "https://vault.fbi.gov/recently-added/RSS",
+    "https://vault.fbi.gov/recently-added",
+    "https://www.cia.gov/readingroom/rss.xml",
+    "https://www.cia.gov/readingroom/recently-added",
+    "https://www.justice.gov/feeds/opa/justice-news.xml",
+    "https://www.archives.gov/news/rss",
+    "https://www.dhs.gov/news-releases/rss.xml",
+)
+
+
+def source_discovery(cfg) -> None:
+    """Enumerate FOIA.gov publication sources and look for feeds/sitemaps."""
+    import tempfile
+    from collections import Counter
+    from urllib.parse import urljoin, urlsplit
+
+    from bs4 import BeautifulSoup
+
+    from foia_archive.discovery import refresh_metadata
+    from foia_archive.storage import get_connection, init_db
+
+    out("## Source discovery (FOIA.gov metadata, feeds, sitemaps)")
+    rooms = []
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg.data["storage"] = {"backend": "local", "db_path": f"{tmp}/d.db", "files_dir": f"{tmp}/f"}
+        init_db(f"{tmp}/d.db", f"{tmp}/f")
+        try:
+            refresh_metadata(cfg)
+        except Exception as exc:  # noqa: BLE001
+            out(f"metadata refresh error: {type(exc).__name__}: {str(exc)[:200]}")
+        conn = get_connection(f"{tmp}/d.db")
+        rooms = [dict(r) for r in conn.execute(
+            "SELECT url, label, source_type, active FROM reading_rooms ORDER BY url")]
+        conn.close()
+    active = [r for r in rooms if r["active"]]
+    hosts = Counter(urlsplit(r["url"]).hostname for r in active)
+    out(f"sources={len(rooms)} active={len(active)} hosts={len(hosts)} "
+        f"types={dict(Counter(r['source_type'] for r in active))}")
+    for r in active:
+        out(f"  src {r['source_type']}: {r['url']} | {str(r['label'])[:60]}")
+    limiter = HostRateLimiter(2.0)
+    try:
+        _, _, final, html = fetch_text("https://www.epa.gov/foia", cfg, limiter, accept="text/html")
+        soup = BeautifulSoup(html, "html.parser")
+        for a in soup.find_all("a", href=True):
+            label = a.get_text(" ", strip=True)
+            if re.search(r"reading|library|frequently|released|records", label + a["href"], re.I):
+                out(f"  epa link: {label[:70]!r} -> {urljoin(final, a['href'])}")
+    except Exception as exc:  # noqa: BLE001
+        out(f"  epa error {type(exc).__name__}: {str(exc)[:150]}")
+    roots = [u for u, _ in WINDOW_PROBE_SOURCES]
+    for root in roots:
+        try:
+            status, headers, final, html = fetch_text(root, cfg, limiter, accept="text/html", return_blocked=True)
+        except Exception as exc:  # noqa: BLE001
+            out(f"### {root}: {type(exc).__name__}")
+            continue
+        soup = BeautifulSoup(html, "html.parser")
+        feeds = [(l.get("type"), urljoin(final, l.get("href"))) for l in soup.find_all("link", href=True)
+                 if "alternate" in [str(x).lower() for x in (l.get("rel") or [])]]
+        rssish = [urljoin(final, a["href"]) for a in soup.find_all("a", href=True)
+                  if re.search(r"rss|atom|feed|\.xml", a["href"], re.I)][:5]
+        out(f"### {root} -> {status} feeds={feeds[:5]} rss-links={rssish} generator="
+            f"{[m.get('content') for m in soup.find_all('meta', attrs={'name': 'generator'})][:2]}")
+        host = urlsplit(final).scheme + "://" + urlsplit(final).netloc
+        try:
+            rstatus, _, _, robots = fetch_text(host + "/robots.txt", cfg, limiter, accept="text/plain")
+            maps = [l.split(":", 1)[1].strip() for l in robots.splitlines() if l.lower().startswith("sitemap")]
+            out(f"  robots {rstatus} sitemaps={maps[:4]} crawl-delay="
+                f"{[l for l in robots.splitlines() if 'crawl-delay' in l.lower()][:2]}")
+        except Exception as exc:  # noqa: BLE001
+            out(f"  robots error {type(exc).__name__}")
+    for url in FEED_CANDIDATES:
+        try:
+            status, headers, final, text = fetch_text(url, cfg, limiter, accept="application/rss+xml, application/atom+xml, text/xml, text/html", return_blocked=True)
+            ctype = headers.get("Content-Type") or headers.get("content-type")
+            items = len(re.findall(r"<item[ >]|<entry[ >]", text))
+            dates = re.findall(r"<(?:pubDate|updated|published|dc:date)>([^<]{6,40})<", text)[:3]
+            out(f"  feed {url} -> {status} {ctype} items={items} dates={dates} bytes={len(text)}")
+        except Exception as exc:  # noqa: BLE001
+            out(f"  feed {url} error {type(exc).__name__}: {str(exc)[:120]}")
+
+
 DATE_TEXT = (r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? \d{1,2},? \d{4}"
              r"|\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2}")
 
@@ -341,7 +425,9 @@ def main() -> None:
             except Exception as exc:  # noqa: BLE001
                 out(f"window crawl probe error: {type(exc).__name__}: {str(exc)[:300]}")
             continue
-        if section == "muckrock-discovery":
+        if section == "source-discovery":
+            source_discovery(cfg)
+        elif section == "muckrock-discovery":
             muckrock_discovery(cfg)
         elif section.startswith("muckrock-requests"):
             muckrock_requests_probe(cfg, int(section.partition(":")[2] or 7))
