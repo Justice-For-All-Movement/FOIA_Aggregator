@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS reading_rooms (
     last_successful_crawl_at TEXT,
     last_error TEXT,
     last_error_at TEXT,
+    baseline_completed_at TEXT,
     FOREIGN KEY (agency_id) REFERENCES agencies(id),
     FOREIGN KEY (office_id) REFERENCES offices(id)
 );
@@ -63,6 +64,8 @@ CREATE TABLE IF NOT EXISTS documents (
     last_download_attempt_at TEXT,
     storage_backend TEXT DEFAULT 'local',
     storage_key TEXT,
+    published_date_source TEXT,
+    newly_found_at TEXT,
     FOREIGN KEY (agency_id) REFERENCES agencies(id),
     FOREIGN KEY (office_id) REFERENCES offices(id),
     FOREIGN KEY (reading_room_id) REFERENCES reading_rooms(id)

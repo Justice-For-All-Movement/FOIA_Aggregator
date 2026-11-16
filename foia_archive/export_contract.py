@@ -129,15 +129,41 @@ def _iso_day(value: Optional[str], label: str) -> Optional[str]:
         raise ValueError(f"{label} must be YYYY-MM-DD") from None
 
 
+def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    return any(r[1] == column for r in conn.execute(f"PRAGMA table_info({table})"))
+
+
+def _record_id(row) -> str:
+    return record_id_for(row["url"])
+
+
+def _in_range(value: Optional[str], since: Optional[str], until: Optional[str]) -> bool:
+    if not value:
+        return False
+    day = str(value)[:10]
+    return (not since or day >= since) and (not until or day <= until)
+
+
+def _match_basis(row, since: Optional[str], until: Optional[str]) -> Dict[str, Any]:
+    keys = row.keys()
+    source = row["published_date_source"] if "published_date_source" in keys else None
+    newly = row["newly_found_at"] if "newly_found_at" in keys else None
+    if _in_range(row["published_date"], since, until):
+        return {"basis": "dated", "date": str(row["published_date"])[:10], "date_source": source or "page"}
+    return {"basis": "newly_found", "date": str(newly)[:10] if newly else None, "date_source": "first_seen"}
+
+
 def export_page(
     conn: sqlite3.Connection, *, cursor: Optional[str] = None, limit: int = DEFAULT_PAGE_SIZE,
     published_since: Optional[str] = None, published_until: Optional[str] = None,
+    basis: str = "any",
 ) -> Dict[str, Any]:
     """One page of catalog records (id order, snapshot-bound cursor).
 
     ``published_since``/``published_until`` (inclusive YYYY-MM-DD) restrict
-    the page to records with a known published date in that range; records
-    with no detected published date are excluded from a filtered listing.
+    the page by ``basis``: "dated" (release date in range), "new" (first seen
+    after the source's baseline crawl, in range) or "any" (either; default).
+    Records with neither are excluded from a filtered listing.
     """
     if type(limit) is not int or not 1 <= limit <= MAX_PAGE_SIZE:
         raise ValueError(f"limit must be 1..{MAX_PAGE_SIZE}")
@@ -145,19 +171,35 @@ def export_page(
     until = _iso_day(published_until, "published_until")
     if since and until and since > until:
         raise ValueError("published_since must not be after published_until")
+    if basis not in ("any", "dated", "new"):
+        raise ValueError("basis must be any, dated or new")
     snapshot_id = snapshot_fingerprint(conn)
     after_id = decode_cursor(cursor, snapshot_id) if cursor else 0
     date_sql, date_params = "", []
+    newly_column = _has_column(conn, "documents", "newly_found_at")
     if since or until:
-        date_sql = " AND d.published_date IS NOT NULL AND d.published_date != ''"
-        if since:
-            date_sql += " AND substr(d.published_date, 1, 10) >= ?"
-            date_params.append(since)
-        if until:
-            date_sql += " AND substr(d.published_date, 1, 10) <= ?"
-            date_params.append(until)
+        # "dated": source/header/metadata date in range; "new": first seen
+        # after the source's baseline crawl within range; "any": either.
+        columns = []
+        if basis in ("any", "dated"):
+            columns.append("substr(d.published_date, 1, 10)")
+        if basis in ("any", "new") and newly_column:
+            columns.append("substr(d.newly_found_at, 1, 10)")
+        parts = []
+        for column in columns:
+            bounds = [f"{column} IS NOT NULL AND {column} != ''"]
+            if since:
+                bounds.append(f"{column} >= ?")
+                date_params.append(since)
+            if until:
+                bounds.append(f"{column} <= ?")
+                date_params.append(until)
+            parts.append("(" + " AND ".join(bounds) + ")")
+        date_sql = " AND (" + (" OR ".join(parts) if parts else "0") + ")"
     rows = conn.execute(
-        """SELECT d.id, d.url, d.title, d.description, d.filename, d.file_type, d.mime_type,
+        """SELECT d.id, d.url, d.title, d.description, d.filename, d.file_type, d.mime_type,"""
+        + (" d.published_date_source, d.newly_found_at," if newly_column else "")
+        + """
                   d.published_date, d.discovered_at, d.downloaded_at, d.download_status,
                   d.sha256, d.file_size,
                   a.slug AS agency_slug, a.name AS agency_name,
@@ -207,8 +249,15 @@ def export_page(
         page["filter"] = {
             "published_since": since,
             "published_until": until,
-            "note": "Only records with a detected published date are listed; "
-                    "coverage depends on which sources have been crawled.",
+            "basis": basis,
+            "note": "Records match when their release date (source page, server Last-Modified "
+                    "or document metadata) or their first-seen-after-baseline time falls in the "
+                    "range; records with neither are excluded. Coverage depends on which sources "
+                    "have been crawled.",
+            # Per-record match explanation (records keep the pinned v1 shape).
+            "date_basis": {
+                _record_id(row): _match_basis(row, since, until) for row in rows
+            },
         }
     return page
 

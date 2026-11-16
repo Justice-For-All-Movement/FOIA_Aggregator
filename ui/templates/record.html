@@ -43,8 +43,14 @@
         </div>
         <div>
           <dt>Published</dt>
-          <dd>{{ document.published_date or 'Unknown' }}</dd>
+          <dd>{{ document.published_date or 'Unknown' }}{% if document.published_date %} <small>({{ date_source_label(document.published_date_source) }})</small>{% endif %}</dd>
         </div>
+        {% if document.newly_found_at %}
+        <div>
+          <dt>Newly found</dt>
+          <dd>{{ document.newly_found_at[:10] }} <small>(first seen after a baseline crawl of this source)</small></dd>
+        </div>
+        {% endif %}
         <div>
           <dt>Discovered</dt>
           <dd>{{ document.discovered_at or 'Unknown' }}</dd>

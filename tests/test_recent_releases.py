@@ -54,8 +54,9 @@ class RecentReleasesTests(unittest.TestCase):
         self.assertIn("Record week-edge", html)
         self.assertNotIn("Record old", html)
         self.assertNotIn("Record undated", html)
-        self.assertIn("no detected published date", html)
+        self.assertIn("no release date at all", html)
         self.assertIn("only includes sources the archive has crawled", html)
+        self.assertIn("(date shown on the source page)", html)
         self.assertLess(html.index("Record future-dated"), html.index("Record fresh"))
 
     def test_explicit_range_and_validation(self):
