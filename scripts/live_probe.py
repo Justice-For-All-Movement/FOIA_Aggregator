@@ -238,6 +238,45 @@ def window_crawl(cfg_path: str, days: int) -> None:
             conn.close()
 
 
+DATE_TEXT = (r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? \d{1,2},? \d{4}"
+             r"|\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2}")
+
+
+def date_context(cfg) -> None:
+    """Show how reached sources present dates next to document links."""
+    import re
+    from urllib.parse import urljoin
+
+    from bs4 import BeautifulSoup
+
+    out("## Date context next to document links (first links per source)")
+    limiter = HostRateLimiter(2.0)
+    pattern = re.compile(DATE_TEXT)
+    for url, label in WINDOW_PROBE_SOURCES:
+        try:
+            status, _, final_url, html = fetch_text(url, cfg, limiter, accept="text/html", max_bytes=3_000_000)
+        except Exception as exc:  # noqa: BLE001
+            out(f"### {label}: {type(exc).__name__}")
+            continue
+        soup = BeautifulSoup(html, "html.parser")
+        anchors = [a for a in soup.find_all("a", href=True)
+                   if re.search(r"\.(pdf|docx?|xlsx?|csv|zip)(\?|$)", a["href"], re.I)]
+        dates = pattern.findall(soup.get_text(" "))
+        out(f"### {label} ({status}): doc links on root={len(anchors)} date-like strings={len(dates)} "
+            f"sample={dates[:5]} time-tags={len(soup.find_all('time'))}")
+        nav = [a for a in soup.find_all("a", href=True)
+               if re.search(r"recent|new|latest|release|what.?s.?new", (a.get_text(" ") + a["href"]), re.I)]
+        for a in nav[:6]:
+            out(f"  nav: {a.get_text(' ', strip=True)[:60]!r} -> {urljoin(final_url, a['href'])[:140]}")
+        for a in anchors[:4]:
+            container = a.find_parent(["tr", "li", "article", "p", "div"])
+            text = " ".join((container or a).get_text(" ").split())[:220]
+            classes = sorted({c for n in (container.find_all(True) if container else []) for c in (n.get("class") or [])
+                              if "date" in c.lower() or "time" in c.lower()})
+            out(f"  link: {a.get_text(' ', strip=True)[:60]!r} container={getattr(container, 'name', None)} "
+                f"date-classes={classes[:6]} text={text!r}")
+
+
 def main() -> None:
     cfg = load_config(os.getenv("FOIA_CONFIG", "config/settings.yaml"))
     sections = sys.argv[1:] or ["muckrock-discovery"]
@@ -251,6 +290,8 @@ def main() -> None:
             continue
         if section == "muckrock-discovery":
             muckrock_discovery(cfg)
+        elif section == "date-context":
+            date_context(cfg)
         elif section == "muckrock-source":
             muckrock_source(cfg)
     summary = os.getenv("GITHUB_STEP_SUMMARY")
