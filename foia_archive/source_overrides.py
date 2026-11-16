@@ -212,3 +212,14 @@ def historical_component_note(component_id: str | None) -> str | None:
     if not component_id:
         return None
     return HISTORICAL_COMPONENTS.get(component_id)
+
+
+# Public RSS/Atom feeds that list a reading room's releases with real dates,
+# verified by the live probe. Keyed by the canonical source root URL.
+CURATED_SOURCE_FEEDS: Dict[str, List[str]] = {}
+
+
+def curated_feeds_for_source(root_url: str | None) -> List[str]:
+    if not root_url:
+        return []
+    return list(CURATED_SOURCE_FEEDS.get(root_url, ()))

@@ -245,6 +245,24 @@ def _migration_15_release_date_sources(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_newly_found ON documents(newly_found_at)")
 
 
+def _migration_16_page_baselines(conn: sqlite3.Connection) -> None:
+    """Page-level baselines and remote sizes (Content-Length from HEAD)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS source_pages (
+            reading_room_id INTEGER NOT NULL,
+            url TEXT NOT NULL,
+            first_crawled_at TEXT NOT NULL,
+            last_crawled_at TEXT NOT NULL,
+            depth INTEGER,
+            PRIMARY KEY (reading_room_id, url)
+        )
+        """
+    )
+    if "url" in _table_columns(conn, "documents"):
+        _ensure_columns(conn, "documents", {"remote_content_length": "INTEGER"})
+
+
 MIGRATIONS: Tuple[
     Tuple[int, str, Callable[[sqlite3.Connection], None]],
     ...,
@@ -264,6 +282,7 @@ MIGRATIONS: Tuple[
     (13, "acquisition and work queues", _migration_13_acquisition_and_work_queues),
     (14, "third-party public request metadata", _migration_14_third_party_requests),
     (15, "release date sources and newly-found baseline", _migration_15_release_date_sources),
+    (16, "page-level crawl baselines and remote sizes", _migration_16_page_baselines),
 )
 
 
@@ -1431,6 +1450,44 @@ def record_reading_room_crawl_failure(
         WHERE id = ?
         """,
         (timestamp, error, timestamp, rr_id),
+    )
+    conn.commit()
+
+
+def known_source_pages(conn: sqlite3.Connection, rr_id: int) -> set[str]:
+    """Pages of a source fetched by an earlier successful crawl."""
+    return {
+        row[0] for row in conn.execute(
+            "SELECT url FROM source_pages WHERE reading_room_id = ?", (rr_id,)
+        )
+    }
+
+
+def record_source_pages(
+    conn: sqlite3.Connection,
+    rr_id: int,
+    pages: Dict[str, int],
+    timestamp: str,
+) -> None:
+    """Remember which pages a completed crawl reached (url -> depth)."""
+    conn.executemany(
+        """
+        INSERT INTO source_pages (reading_room_id, url, first_crawled_at, last_crawled_at, depth)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(reading_room_id, url) DO UPDATE SET
+            last_crawled_at = excluded.last_crawled_at,
+            depth = MIN(COALESCE(source_pages.depth, excluded.depth), excluded.depth)
+        """,
+        [(rr_id, url, timestamp, timestamp, depth) for url, depth in pages.items()],
+    )
+    conn.commit()
+
+
+def set_remote_content_length(conn: sqlite3.Connection, url: str, length: Optional[int]) -> None:
+    if length is None or length < 0:
+        return
+    conn.execute(
+        "UPDATE documents SET remote_content_length = ? WHERE url = ?", (int(length), url)
     )
     conn.commit()
 

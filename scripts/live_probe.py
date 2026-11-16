@@ -11,6 +11,7 @@ public titles, statuses and dates.
 from __future__ import annotations
 
 import json
+import re
 import os
 import sys
 from pathlib import Path

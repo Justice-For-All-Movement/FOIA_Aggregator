@@ -9,6 +9,7 @@ import posixpath
 import re
 import socket
 import tempfile
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -44,13 +45,18 @@ from .storage import (
     get_document_by_url,
     insert_document,
     list_reading_rooms,
+    known_source_pages,
     record_reading_room_crawl_failure,
     record_reading_room_crawl_success,
+    record_source_pages,
     set_document_date,
+    set_remote_content_length,
     update_download_failure,
     update_download_metadata,
     upsert_document_text,
 )
+from .feeds import discover_feed_urls, looks_like_feed, parse_feed
+from .source_overrides import curated_feeds_for_source
 from .text_extraction import OCRSettings, extract_document_text
 from . import published_window as pw
 from .utils import Config, clean_filename, logger
@@ -161,6 +167,11 @@ class CrawlTarget:
     depth: int
     title: str
     published_date: Optional[str] = None
+    # Page the link was found on (page-level newly-found baselines).
+    parent: Optional[str] = None
+    # Feed items: the item's own date also dates documents on its page.
+    inherit_date: bool = False
+    is_feed: bool = False
 
 
 @dataclass(frozen=True)
@@ -176,19 +187,22 @@ class HostRateLimiter:
     def __init__(self, delay_seconds: float):
         self.delay_seconds = max(0.0, float(delay_seconds))
         self._last_request: Dict[str, float] = {}
+        self._lock = threading.Lock()
 
     def wait(self, url: str) -> None:
+        """Thread-safe: concurrent callers for one host get distinct slots."""
         if self.delay_seconds <= 0:
             return
         parsed = urlparse(url)
         key = parsed.netloc.lower()
-        now = time.monotonic()
-        last = self._last_request.get(key)
-        if last is not None:
-            remaining = self.delay_seconds - (now - last)
-            if remaining > 0:
-                time.sleep(remaining)
-        self._last_request[key] = time.monotonic()
+        with self._lock:
+            now = time.monotonic()
+            last = self._last_request.get(key)
+            slot = now if last is None else max(now, last + self.delay_seconds)
+            self._last_request[key] = slot
+        remaining = slot - now
+        if remaining > 0:
+            time.sleep(remaining)
 
 
 def _normalize_published_date(value: str) -> Optional[str]:
@@ -637,6 +651,52 @@ def _url_in_scope(url: str, scope: CrawlScope) -> bool:
     return path == scope.path_prefix or path.startswith(scope.path_prefix + "/")
 
 
+# Hosts that agencies commonly use to serve their own released documents.
+KNOWN_DOCUMENT_HOSTS = frozenset({
+    "media.defense.gov",
+    "www.esd.whs.mil",
+    "apps.dtic.mil",
+    "www.govinfo.gov",
+    "downloads.regulations.gov",
+    "www.regulations.gov",
+    "www.oversight.gov",
+    "www.documentcloud.org",
+    "assets.documentcloud.org",
+    "s3.documentcloud.org",
+    "catalog.archives.gov",
+    "s3.amazonaws.com",
+})
+_TWO_LEVEL_SUFFIXES = {"co", "com", "org", "net", "gov", "ac", "edu", "mil"}
+
+
+def registrable_domain(hostname: str) -> str:
+    """Approximate eTLD+1 (sufficient for .gov/.mil/.com source hosts)."""
+    labels = [label for label in (hostname or "").lower().rstrip(".").split(".") if label]
+    if len(labels) >= 3 and labels[-2] in _TWO_LEVEL_SUFFIXES and len(labels[-1]) == 2:
+        return ".".join(labels[-3:])
+    return ".".join(labels[-2:])
+
+
+def document_host_filter(source_urls, extra_hosts=()):
+    """Keep document links on the source's own site(s) or a known document host.
+
+    Off-site footer/navigation documents (e.g. a recruiting site's PDFs
+    linked from every page) are not records of the source and are dropped.
+    """
+    domains = {
+        registrable_domain(urlparse(url).hostname or "")
+        for url in source_urls if url
+    }
+    domains.discard("")
+    allowed_hosts = set(KNOWN_DOCUMENT_HOSTS) | {str(h).lower() for h in (extra_hosts or ())}
+
+    def allowed(url: str) -> bool:
+        host = (urlparse(url).hostname or "").lower()
+        return host in allowed_hosts or registrable_domain(host) in domains
+
+    return allowed
+
+
 def extract_crawl_targets(
     html: str,
     base_url: str,
@@ -680,8 +740,15 @@ def extract_crawl_targets(
     return targets
 
 
-def extract_document_links(html: str, base_url: str) -> List[DocumentLink]:
-    soup = BeautifulSoup(html, "html.parser")
+def extract_document_links(
+    html: str,
+    base_url: str,
+    allowed=None,
+    *,
+    soup=None,
+) -> List[DocumentLink]:
+    """Document links on a page; ``allowed(url)`` drops off-scope hosts."""
+    soup = soup if soup is not None else BeautifulSoup(html, "html.parser")
     links: List[DocumentLink] = []
     seen: Set[str] = set()
     for tag in soup.find_all("a", href=True):
@@ -692,7 +759,7 @@ def extract_document_links(html: str, base_url: str) -> List[DocumentLink]:
         if not absolute_url or absolute_url in seen:
             continue
         ext = _extension_from_url(absolute_url)
-        if ext in ALLOWED_EXTENSIONS:
+        if ext in ALLOWED_EXTENSIONS and (allowed is None or allowed(absolute_url)):
             seen.add(absolute_url)
             links.append(
                 {
@@ -1403,10 +1470,24 @@ def _parse_http_date(value: Optional[str]) -> Optional[str]:
 
 
 def _head_last_modified(url: str, config: Config, rate_limiter, session=None) -> Optional[str]:
-    """One polite HEAD (honest UA, SSRF-safe redirects); Last-Modified as a date.
+    """One polite HEAD; Last-Modified as a date (see ``_head_probe``)."""
+    return _head_probe(url, config, rate_limiter, session)[0]
 
-    Any error, denial or missing header simply yields no date: a HEAD is
-    never retried with other headers.
+
+def _parse_length(value) -> Optional[int]:
+    try:
+        length = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return length if length >= 0 else None
+
+
+def _head_probe(url: str, config: Config, rate_limiter, session=None):
+    """One polite HEAD (honest UA, SSRF-safe redirects).
+
+    Returns ``(last_modified_date, content_length)``. Any error, denial or
+    missing header simply yields ``None``: a HEAD is never retried with other
+    headers.
     """
     headers = _request_headers(config)
     timeout = min(15.0, float(config.crawler.get("page_timeout_seconds", 30)))
@@ -1425,15 +1506,44 @@ def _head_last_modified(url: str, config: Config, rate_limiter, session=None) ->
                 location = response_headers.get("Location") or response_headers.get("location")
                 last_modified = (response_headers.get("Last-Modified")
                                  or response_headers.get("last-modified"))
+                length = _parse_length(response_headers.get("Content-Length")
+                                       or response_headers.get("content-length"))
             finally:
                 _close_response(response)
             if status in REDIRECT_STATUS_CODES and location:
                 current = urljoin(current, location)
                 continue
-            return _parse_http_date(last_modified) if 200 <= status < 300 else None
+            if 200 <= status < 300:
+                return _parse_http_date(last_modified), length
+            return None, None
     except Exception:  # noqa: BLE001 - a missing date is not a crawl failure
+        return None, None
+    return None, None
+
+
+def _probe_state(config: Optional[Config]):
+    return (config.data.get("_date_probe") if config is not None else None) or None
+
+
+def _probe_once(canonical: str, config: Config):
+    """Cached, budgeted HEAD probe -> (date, length) or None when no budget."""
+    state = _probe_state(config)
+    if not state:
         return None
-    return None
+    if canonical in state["cache"]:
+        return state["cache"][canonical]
+    if state["remaining"] <= 0:
+        return None
+    state["remaining"] -= 1
+    state["probed"] += 1
+    found, length = _head_probe(canonical, config, state["rate_limiter"], state["session"])
+    totals = config.data.setdefault("_date_probe_totals", {"probed": 0, "found": 0})
+    totals["probed"] += 1
+    if found:
+        state["found"] += 1
+        totals["found"] += 1
+    state["cache"][canonical] = (found, length)
+    return found, length
 
 
 def _candidate_date(conn, canonical: str, page_date: Optional[str], existing, config: Optional[Config]):
@@ -1443,28 +1553,66 @@ def _candidate_date(conn, canonical: str, page_date: Optional[str], existing, co
     if existing is not None:
         known = _row_value(existing, "published_date")
         return (known, _row_value(existing, "published_date_source") or "page") if known else (None, None)
-    state = (config.data.get("_date_probe") if config is not None else None) or None
+    probed = _probe_once(canonical, config)
+    if not probed or not probed[0]:
+        return None, None
+    return probed[0], "header"
+
+
+def _head_size_probes_enabled(config: Optional[Config]) -> bool:
+    if config is None:
+        return False
+    value = config.crawler.get("head_probe_sizes", False)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _known_remote_length(canonical: str, config: Optional[Config], *, probe: bool) -> Optional[int]:
+    state = _probe_state(config)
     if not state:
-        return None, None
-    if canonical in state["cache"]:
-        return state["cache"][canonical]
-    if state["remaining"] <= 0:
-        return None, None
-    state["remaining"] -= 1
-    state["probed"] += 1
-    found = _head_last_modified(canonical, config, state["rate_limiter"], state["session"])
-    totals = config.data.setdefault("_date_probe_totals", {"probed": 0, "found": 0})
-    totals["probed"] += 1
-    if found:
-        state["found"] += 1
-        totals["found"] += 1
-    result = (found, "header") if found else (None, None)
-    state["cache"][canonical] = result
-    return result
+        return None
+    cached = state["cache"].get(canonical)
+    if cached is None and probe:
+        cached = _probe_once(canonical, config)
+    return cached[1] if cached else None
 
 
-def _newly_found_stamp(rr) -> Optional[str]:
-    """First-seen time counts as a release proxy only after a source baseline."""
+def _begin_page_baseline(conn, rr, root_url: str, config: Config) -> None:
+    """Load the pages earlier crawls reached; only those can yield 'newly found'.
+
+    A page first reached in this crawl (deeper traversal, larger page budget,
+    a new feed) is baseline material: its documents existed before we looked.
+    Sources baselined before page tracking existed treat their root as known.
+    """
+    known = known_source_pages(conn, rr["id"])
+    if not known and _row_value(rr, "baseline_completed_at"):
+        known = {root_url}
+    config.data["_page_baseline"] = {"rr_id": rr["id"], "known": known, "reached": {}}
+
+
+def _page_reached(config: Config, page_url: Optional[str], depth: int) -> None:
+    state = config.data.get("_page_baseline")
+    if state is not None and page_url:
+        previous = state["reached"].get(page_url)
+        state["reached"][page_url] = depth if previous is None else min(previous, depth)
+
+
+def _finish_page_baseline(conn, rr_id: int, config: Config) -> None:
+    state = config.data.pop("_page_baseline", None)
+    if state and state["reached"] and state["rr_id"] == rr_id:
+        record_source_pages(conn, rr_id, state["reached"], datetime.now(timezone.utc).isoformat())
+
+
+def _newly_found_stamp(rr, config: Optional[Config] = None, page_url: Optional[str] = None) -> Optional[str]:
+    """First-seen time counts as a release proxy only after a baseline.
+
+    With page tracking, the page the link was found on must have been reached
+    by an earlier crawl; otherwise the source-level baseline decides.
+    """
+    state = config.data.get("_page_baseline") if config is not None else None
+    if state is not None and page_url is not None and state["rr_id"] == _row_value(rr, "id"):
+        return datetime.now(timezone.utc).isoformat() if page_url in state["known"] else None
     return datetime.now(timezone.utc).isoformat() if _row_value(rr, "baseline_completed_at") else None
 
 
@@ -1494,6 +1642,7 @@ def _candidate_counts_toward_source_limit(
     config: Optional[Config] = None,
     published_date: Optional[str] = None,
     rr=None,
+    page_url: Optional[str] = None,
 ) -> bool:
     """Return whether a candidate should consume the per-source document quota.
 
@@ -1515,7 +1664,7 @@ def _candidate_counts_toward_source_limit(
     if window is not None:
         effective, _ = _candidate_date(conn, canonical, published_date, existing, config)
         newly = (_row_value(existing, "newly_found_at") if existing is not None
-                 else _newly_found_stamp(rr))
+                 else _newly_found_stamp(rr, config, page_url))
         if not window.admits_record(effective, newly):
             return False
     if existing is None:
@@ -1543,6 +1692,7 @@ def _process_document_candidate(
     dry_run: bool,
     rate_limiter: HostRateLimiter,
     session: Optional[requests.Session] = None,
+    page_url: Optional[str] = None,
 ) -> bool:
     """Persist/download one document candidate. Return True when newly discovered."""
     canonical = canonicalize_url(url)
@@ -1608,7 +1758,7 @@ def _process_document_candidate(
             )
             return False
     else:
-        newly_found_at = _newly_found_stamp(rr)
+        newly_found_at = _newly_found_stamp(rr, config, page_url)
         doc_id = insert_document(
             conn,
             url=canonical,
@@ -1623,6 +1773,11 @@ def _process_document_candidate(
             published_date_source=candidate_date_source,
             newly_found_at=newly_found_at,
         )
+        remote_length = _known_remote_length(
+            canonical, config, probe=_head_size_probes_enabled(config)
+        )
+        if remote_length is not None:
+            set_remote_content_length(conn, canonical, remote_length)
 
     window = pw.window_from_config(config)
     if window is not None:
@@ -2045,6 +2200,7 @@ def _crawl_reading_room_with_connection(
     )
 
     window = pw.window_from_config(config)
+    _begin_page_baseline(conn, rr, root_url, config)
     frontier: Deque[CrawlTarget] = deque(
         [
             CrawlTarget(
@@ -2054,14 +2210,63 @@ def _crawl_reading_room_with_connection(
             )
         ]
     )
-    queued_pages: Set[str] = {root_url}
+    for feed_url in curated_feeds_for_source(root_url):
+        frontier.append(CrawlTarget(url=feed_url, depth=0, title="feed", parent=root_url, is_feed=True))
+    queued_pages: Set[str] = {target.url for target in frontier}
     seen_pages: Set[str] = set()
     seen_documents: Set[str] = set()
     scope: Optional[CrawlScope] = None
+    document_allowed = None
     pages_fetched = 0
     new_documents = 0
     limited_documents = 0
     stop_for_document_limit = False
+    quota_limit = None if max_docs is None else max(0, int(max_docs))
+
+    def handle_document(url, title, published_date, file_type, page_url) -> bool:
+        """Process one candidate; return False once a limit stops the source."""
+        nonlocal new_documents, limited_documents, stop_for_document_limit
+        if url in seen_documents:
+            return True
+        consumes_quota = _candidate_counts_toward_source_limit(
+            conn,
+            url,
+            dry_run=dry_run,
+            config=config,
+            published_date=published_date,
+            rr=rr,
+            page_url=page_url,
+        )
+        if quota_limit is not None and consumes_quota and limited_documents >= quota_limit:
+            logger.info("Per-source document limit reached for %s", rr["url"])
+            stop_for_document_limit = True
+            return False
+        if len(seen_documents) >= max_discovered_docs:
+            stop_for_document_limit = True
+            return False
+        seen_documents.add(url)
+        is_new = _process_document_candidate(
+            conn,
+            rr,
+            url,
+            title or url,
+            published_date,
+            file_type,
+            config,
+            dry_run,
+            rate_limiter,
+            session=crawl_session,
+            page_url=page_url,
+        )
+        if is_new:
+            new_documents += 1
+        if consumes_quota:
+            limited_documents += 1
+        if quota_limit is not None and limited_documents >= quota_limit:
+            logger.info("Per-source document limit reached for %s", rr["url"])
+            stop_for_document_limit = True
+            return False
+        return True
 
     while frontier and pages_fetched < max_pages and not stop_for_document_limit:
         target = frontier.popleft()
@@ -2070,6 +2275,7 @@ def _crawl_reading_room_with_connection(
         seen_pages.add(target.url)
 
         response = None
+        feed_body = None
         try:
             response, final_url = _fetch_crawl_resource(
                 target.url,
@@ -2079,9 +2285,13 @@ def _crawl_reading_room_with_connection(
             )
             final_url = canonicalize_url(final_url) or target.url
 
-            if target.depth == 0:
+            if target.depth == 0 and scope is None and not target.is_feed:
                 scope = _crawl_scope(final_url)
-            elif scope is not None and not _url_in_scope(final_url, scope):
+                document_allowed = document_host_filter(
+                    [rr["url"], root_url, final_url],
+                    config.crawler.get("extra_document_hosts") or (),
+                )
+            elif scope is not None and not _url_in_scope(final_url, scope) and not target.is_feed:
                 logger.info(
                     "Skipping redirect outside reading-room scope: %s",
                     final_url,
@@ -2089,70 +2299,30 @@ def _crawl_reading_room_with_connection(
                 continue
 
             pages_fetched += 1
-            file_type = _document_type_from_response(response, final_url)
-            if file_type:
-                if final_url not in seen_documents:
-                    consumes_quota = _candidate_counts_toward_source_limit(
-                        conn,
-                        final_url,
-                        dry_run=dry_run,
-                        config=config,
-                        published_date=target.published_date,
-                        rr=rr,
-                    )
-                    if (
-                        max_docs is not None
-                        and consumes_quota
-                        and limited_documents >= max(0, int(max_docs))
-                    ):
-                        logger.info(
-                            "Per-source document limit reached for %s",
-                            rr["url"],
-                        )
-                        break
-                    if len(seen_documents) >= max_discovered_docs:
-                        stop_for_document_limit = True
-                        break
-                    seen_documents.add(final_url)
-                    is_new = _process_document_candidate(
-                        conn,
-                        rr,
-                        final_url,
-                        target.title,
-                        target.published_date,
-                        file_type,
-                        config,
-                        dry_run,
-                        rate_limiter,
-                        session=crawl_session,
-                    )
-                    if is_new:
-                        new_documents += 1
-                    if consumes_quota:
-                        limited_documents += 1
-                if (
-                    max_docs is not None
-                    and limited_documents >= max(0, int(max_docs))
-                ):
-                    logger.info(
-                        "Per-source document limit reached for %s",
-                        rr["url"],
-                    )
-                    break
+            mime_type = _content_type(response)
+            file_type = None if target.is_feed else _document_type_from_response(response, final_url)
+            if file_type and mime_type not in ("application/xml", "text/xml"):
+                if document_allowed is None or document_allowed(final_url):
+                    handle_document(final_url, target.title, target.published_date, file_type,
+                                    target.parent or target.url)
                 continue
 
-            mime_type = _content_type(response)
-            if mime_type and mime_type not in HTML_MIME_TYPES:
+            if target.is_feed or mime_type in FEED_MIME_TYPES:
+                feed_body = _read_limited_text(response, page_max_bytes)
+                if not looks_like_feed(mime_type, feed_body):
+                    continue
+                html = ""
+            elif mime_type and mime_type not in HTML_MIME_TYPES:
                 logger.info(
                     "Skipping unsupported crawl response %s (%s)",
                     final_url,
                     mime_type,
                 )
                 continue
-
-            html = _read_limited_text(response, page_max_bytes)
+            else:
+                html = _read_limited_text(response, page_max_bytes)
         except Exception as exc:  # noqa: BLE001
-            if target.depth == 0:
+            if target.depth == 0 and not target.is_feed:
                 attempted_at = datetime.utcnow().isoformat()
                 error = f"{type(exc).__name__}: {exc}"[:2000]
                 logger.warning("Failed to fetch reading room %s: %s", rr["url"], exc)
@@ -2162,6 +2332,7 @@ def _crawl_reading_room_with_connection(
                     attempted_at,
                     error,
                 )
+                config.data.pop("_page_baseline", None)
                 if crawl_session is not None:
                     crawl_session.close()
                 return
@@ -2171,69 +2342,48 @@ def _crawl_reading_room_with_connection(
             if response is not None:
                 _close_response(response)
 
-        page_links = extract_document_links(html, final_url)
+        _page_reached(config, target.url, target.depth)
+
+        if feed_body is not None:
+            _enqueue_feed_items(
+                feed_body, final_url, target, scope, frontier, queued_pages, seen_pages,
+                handle_document, document_allowed,
+            )
+            continue
+
+        soup = BeautifulSoup(html, "html.parser")
+        page_links = extract_document_links(html, final_url, document_allowed, soup=soup)
+        inherited = target.published_date if target.inherit_date else None
         if window is not None:
             # Stable sort: in-window first, then unknown, then out-of-window.
             page_links = sorted(
                 page_links,
-                key=lambda item: pw.priority(window, item.get("published_date")),
+                key=lambda item: pw.priority(window, item.get("published_date") or inherited),
             )
         for link in page_links:
-            url = link["url"]
-            if url in seen_documents:
-                continue
-            consumes_quota = _candidate_counts_toward_source_limit(
-                conn,
-                url,
-                dry_run=dry_run,
-                config=config,
-                published_date=link.get("published_date"),
-                rr=rr,
-            )
-            if (
-                max_docs is not None
-                and consumes_quota
-                and limited_documents >= max(0, int(max_docs))
-            ):
-                logger.info(
-                    "Per-source document limit reached for %s",
-                    rr["url"],
-                )
-                stop_for_document_limit = True
-                break
-            if len(seen_documents) >= max_discovered_docs:
-                stop_for_document_limit = True
-                break
-
-            seen_documents.add(url)
-            is_new = _process_document_candidate(
-                conn,
-                rr,
-                url,
-                link.get("title") or url,
-                link.get("published_date"),
+            if not handle_document(
+                link["url"],
+                link.get("title") or link["url"],
+                link.get("published_date") or inherited,
                 link["file_type"],
-                config,
-                dry_run,
-                rate_limiter,
-                session=crawl_session,
-            )
-            if is_new:
-                new_documents += 1
-            if consumes_quota:
-                limited_documents += 1
-            if (
-                max_docs is not None
-                and limited_documents >= max(0, int(max_docs))
+                target.url,
             ):
-                logger.info(
-                    "Per-source document limit reached for %s",
-                    rr["url"],
-                )
-                stop_for_document_limit = True
                 break
 
-        if stop_for_document_limit or target.depth >= max_depth or scope is None:
+        if stop_for_document_limit or scope is None:
+            continue
+
+        # Advertised feeds are structured, dated listings: fetch them first.
+        for feed_url in discover_feed_urls(soup, final_url):
+            canonical_feed = canonicalize_url(feed_url)
+            if (not canonical_feed or canonical_feed in queued_pages
+                    or not _url_in_scope(canonical_feed, scope)):
+                continue
+            queued_pages.add(canonical_feed)
+            frontier.appendleft(CrawlTarget(url=canonical_feed, depth=target.depth, title="feed",
+                                            parent=target.url, is_feed=True))
+
+        if target.depth >= max_depth:
             continue
 
         for crawl_target in extract_crawl_targets(
@@ -2265,11 +2415,50 @@ def _crawl_reading_room_with_connection(
     if crawl_session is not None:
         crawl_session.close()
 
+    _finish_page_baseline(conn, rr_id, config)
     record_reading_room_crawl_success(
         conn,
         rr_id,
         datetime.utcnow().isoformat(),
     )
+
+
+FEED_MIME_TYPES = {"application/rss+xml", "application/atom+xml", "application/rdf+xml"}
+
+
+def _enqueue_feed_items(body, feed_url, target, scope, frontier, queued_pages, seen_pages,
+                        handle_document, document_allowed) -> None:
+    """Feed items: documents are processed now; item pages are crawled next."""
+    try:
+        items = parse_feed(body, feed_url)
+    except Exception as exc:  # noqa: BLE001 - a bad feed is not a source failure
+        logger.info("Ignoring unparseable feed %s: %s", feed_url, type(exc).__name__)
+        return
+    pages = []
+    for item in items:
+        for raw in [item["url"], *(item.get("enclosures") or [])]:
+            url = canonicalize_url(raw)
+            if not url:
+                continue
+            ext = _extension_from_url(url)
+            if ext in ALLOWED_EXTENSIONS:
+                if document_allowed is not None and not document_allowed(url):
+                    continue
+                if not handle_document(url, item.get("title") or url, item.get("published_date"),
+                                       ext, target.url):
+                    return
+            elif (scope is not None and _url_in_scope(url, scope)
+                  and url not in queued_pages and url not in seen_pages
+                  and ext not in SKIP_CRAWL_EXTENSIONS):
+                queued_pages.add(url)
+                pages.append(CrawlTarget(
+                    url=url, depth=target.depth + 1, title=item.get("title") or url,
+                    published_date=item.get("published_date"), parent=target.url,
+                    inherit_date=bool(item.get("published_date")),
+                ))
+    # Newest-first feed order is preserved at the front of the frontier.
+    for page in reversed(pages):
+        frontier.appendleft(page)
 
 
 def crawl_reading_room(

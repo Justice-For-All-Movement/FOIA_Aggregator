@@ -118,7 +118,7 @@ class HostRateLimiterTests(unittest.TestCase):
         with (
             patch(
                 "foia_archive.scraper_core.time.monotonic",
-                side_effect=[0.0, 0.0, 0.25, 1.0],
+                side_effect=[0.0, 0.25],
             ),
             patch("foia_archive.scraper_core.time.sleep") as sleep,
         ):
@@ -257,8 +257,8 @@ class BoundedReadingRoomCrawlerTests(unittest.TestCase):
                 "https://example.gov/reading-room/extensionless",
                 "https://example.gov/reading-room/report.pdf",
                 "https://example.gov/reading-room/slides.pptx",
-                "https://other.gov/archive/external.pdf",
-            },
+            },  # off-site other.gov PDF is not this source's record
+
         )
         self.assertEqual(
             documents["https://example.gov/reading-room/extensionless"]["file_type"],
