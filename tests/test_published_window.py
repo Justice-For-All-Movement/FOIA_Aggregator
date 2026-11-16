@@ -104,6 +104,21 @@ class ResolveWindowTests(unittest.TestCase):
         self.assertIn('"in_window": 2', result.output)
 
 
+class LabeledTextDateTests(unittest.TestCase):
+    def test_only_labeled_listing_dates_are_published_dates(self):
+        from foia_archive.scraper_core import extract_document_links
+        html = """<ul>
+          <li><a href="a.pdf">A</a> (Posted 11/12/2026)</li>
+          <li><a href="b.pdf">B</a> Date Released: Sept. 3, 2026</li>
+          <li><a href="c.pdf">Memo</a> - Jan. 30, 2025</li>
+          <li><a href="d.pdf">D</a> released 11/1/2026, re-released 11/2/2026</li>
+        </ul>"""
+        dates = {link["url"].rsplit("/", 1)[-1]: link["published_date"]
+                 for link in extract_document_links(html, "https://example.gov/")}
+        self.assertEqual(dates, {"a.pdf": "2026-11-12", "b.pdf": "2026-09-03",
+                                 "c.pdf": None, "d.pdf": None})
+
+
 class WindowCrawlTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

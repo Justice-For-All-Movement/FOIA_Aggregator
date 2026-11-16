@@ -322,7 +322,34 @@ def _published_date_from_context(anchor) -> Optional[str]:
     unique_time_candidates = set(time_candidates)
     if len(unique_time_candidates) == 1:
         return next(iter(unique_time_candidates))
-    return None
+    return _labeled_text_date(container.get_text(" ", strip=True))
+
+
+_TEXT_DATE = (
+    r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}"
+    r"|\d{1,2}/\d{1,2}/\d{4}|\d{4}-\d{2}-\d{2}"
+)
+_LABELED_DATE_RE = re.compile(
+    r"\b(?:date\s+)?(?:posted|released|published|publication\s+date|release\s+date)"
+    r"(?:\s+on)?\s*[:\-\u2013]?\s*(" + _TEXT_DATE + r")",
+    re.IGNORECASE,
+)
+
+
+def _labeled_text_date(text: str) -> Optional[str]:
+    """A date explicitly labeled posted/released/published in listing text.
+
+    Unlabeled dates (often the document's own date) are deliberately ignored.
+    Exactly one distinct labeled date is required.
+    """
+    found = set()
+    for match in _LABELED_DATE_RE.finditer(text or ""):
+        raw = re.sub(r"^([A-Za-z]{3})[A-Za-z]*\.?", lambda m: m.group(1), match.group(1).strip())
+        raw = re.sub(r"\s+", " ", raw)
+        normalized = _normalize_published_date(raw)
+        if normalized:
+            found.add(normalized)
+    return next(iter(found)) if len(found) == 1 else None
 
 
 def _parse_utc_timestamp(value: Optional[str]) -> Optional[datetime]:
