@@ -18,7 +18,7 @@ import binascii
 import hashlib
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -117,13 +117,45 @@ def _record(row: sqlite3.Row, sources: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def _iso_day(value: Optional[str], label: str) -> Optional[str]:
+    if value is None or value == "":
+        return None
+    text = str(value)
+    try:
+        if len(text) != 10:
+            raise ValueError
+        return date.fromisoformat(text).isoformat()
+    except ValueError:
+        raise ValueError(f"{label} must be YYYY-MM-DD") from None
+
+
 def export_page(
     conn: sqlite3.Connection, *, cursor: Optional[str] = None, limit: int = DEFAULT_PAGE_SIZE,
+    published_since: Optional[str] = None, published_until: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """One page of catalog records (id order, snapshot-bound cursor).
+
+    ``published_since``/``published_until`` (inclusive YYYY-MM-DD) restrict
+    the page to records with a known published date in that range; records
+    with no detected published date are excluded from a filtered listing.
+    """
     if type(limit) is not int or not 1 <= limit <= MAX_PAGE_SIZE:
         raise ValueError(f"limit must be 1..{MAX_PAGE_SIZE}")
+    since = _iso_day(published_since, "published_since")
+    until = _iso_day(published_until, "published_until")
+    if since and until and since > until:
+        raise ValueError("published_since must not be after published_until")
     snapshot_id = snapshot_fingerprint(conn)
     after_id = decode_cursor(cursor, snapshot_id) if cursor else 0
+    date_sql, date_params = "", []
+    if since or until:
+        date_sql = " AND d.published_date IS NOT NULL AND d.published_date != ''"
+        if since:
+            date_sql += " AND substr(d.published_date, 1, 10) >= ?"
+            date_params.append(since)
+        if until:
+            date_sql += " AND substr(d.published_date, 1, 10) <= ?"
+            date_params.append(until)
     rows = conn.execute(
         """SELECT d.id, d.url, d.title, d.description, d.filename, d.file_type, d.mime_type,
                   d.published_date, d.discovered_at, d.downloaded_at, d.download_status,
@@ -135,9 +167,11 @@ def export_page(
            LEFT JOIN agencies a ON a.id = d.agency_id
            LEFT JOIN offices o ON o.id = d.office_id
            LEFT JOIN document_text t ON t.document_id = d.id
-           WHERE d.id > ? AND d.url IS NOT NULL
+           WHERE d.id > ? AND d.url IS NOT NULL"""
+        + date_sql
+        + """
            ORDER BY d.id LIMIT ?""",
-        (after_id, limit + 1),
+        (after_id, *date_params, limit + 1),
     ).fetchall()
     has_more = len(rows) > limit
     rows = rows[:limit]
@@ -161,12 +195,22 @@ def export_page(
                 "url": normalize_url(source["url"]),
                 "provenance": "official",
             })
-    return {
+    page = {
         "schema_version": SCHEMA_VERSION,
         "snapshot_id": snapshot_id,
         "records": [_record(row, sources_by_doc[row["id"]]) for row in rows],
         "next_cursor": encode_cursor(rows[-1]["id"], snapshot_id) if has_more else None,
     }
+    if since or until:
+        # Additive envelope field; records keep the pinned v1 shape. Pass the
+        # same filter with next_cursor to continue a filtered listing.
+        page["filter"] = {
+            "published_since": since,
+            "published_until": until,
+            "note": "Only records with a detected published date are listed; "
+                    "coverage depends on which sources have been crawled.",
+        }
+    return page
 
 
 # Additive manifest revisions keep schema_version "foia-catalog-export/1":

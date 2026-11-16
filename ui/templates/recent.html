@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Recent releases — FOIA Aggregator{% endblock %}
+{% block description %}Federal FOIA records whose published date falls in a recent window.{% endblock %}
+{% block content %}
+<section class="record-header">
+  <p class="eyebrow">Recent releases</p>
+  <h1>{% if days %}Published in the last {{ days }} day{{ '' if days == 1 else 's' }}{% else %}Published {{ since }}{% if until %} to {{ until }}{% else %} or later{% endif %}{% endif %}</h1>
+  <p class="record-subtitle">
+    {{ "{:,}".format(total) }} record{{ '' if total == 1 else 's' }} with a detected published date
+    from {{ since }}{% if until %} to {{ until }}{% else %} onward{% endif %}.
+  </p>
+</section>
+
+<section class="panel">
+  <p class="results-meta">
+    <strong>Coverage note:</strong> this list only includes sources the archive has crawled, and only
+    records whose publication date could be detected on the source page. {{ "{:,}".format(undated) }}
+    cataloged record{{ '' if undated == 1 else 's' }} with no detected published date
+    {{ 'is' if undated == 1 else 'are' }} excluded. "Published" is the date the source lists, not the
+    date we found it.
+  </p>
+  <form class="filters" method="get" action="/recent">
+    <label>Last
+      <select name="days">
+        {% for n in [1, 7, 14, 30, 90] %}<option value="{{ n }}" {% if days == n %}selected{% endif %}>{{ n }} day{{ '' if n == 1 else 's' }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Show</button>
+  </form>
+  <form class="filters" method="get" action="/recent">
+    <label>From <input type="date" name="since" value="{{ since }}"></label>
+    <label>To <input type="date" name="until" value="{{ until or '' }}"></label>
+    <button type="submit">Show range</button>
+  </form>
+  <p class="results-meta">
+    JSON: <a href="{{ api_url }}">{{ api_url }}</a>
+    {% if show_requests_link %} · <a href="/requests?days={{ days or 7 }}">Requests others filed (MuckRock)</a>{% endif %}
+  </p>
+</section>
+
+{% if documents %}
+<div class="results">
+  {% for doc in documents %}
+  <article class="result-card">
+    <div class="result-kicker">
+      <span>Published {{ doc.published_date }}</span>
+      <span>• {{ doc.agency_name or 'Federal record' }}</span>
+      {% if doc.office_name %}<span>• {{ doc.office_name }}</span>{% endif %}
+      <span>• {{ (doc.file_type or 'unknown')|upper }}</span>
+    </div>
+    <a class="result-title" href="/record/{{ doc.id }}">{{ doc.title or doc.filename or 'Untitled record' }}</a>
+    <div class="result-footer">
+      <div class="result-actions">
+        <a href="/record/{{ doc.id }}">View record</a>
+        {% if doc.storage_key or doc.local_path %}<a href="/archive/{{ doc.id }}" target="_blank" rel="noopener">Archived copy</a>{% endif %}
+        {% if doc.url %}<a href="{{ doc.url }}" target="_blank" rel="noopener noreferrer">Original source</a>{% endif %}
+      </div>
+      {% if doc.download_status == 'downloaded' %}<span class="badge downloaded">Archived</span>
+      {% else %}<span class="badge pending">Source link only</span>{% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+<nav class="pagination" aria-label="Pagination">
+  {% if previous_url %}<a href="{{ previous_url }}">Previous</a>{% endif %}
+  <span>Page {{ page }} of {{ total_pages }}</span>
+  {% if next_url %}<a href="{{ next_url }}">Next</a>{% endif %}
+</nav>
+{% else %}
+<section class="panel"><p class="results-meta">No crawled records have a detected published date in this window yet.</p></section>
+{% endif %}
+{% endblock %}

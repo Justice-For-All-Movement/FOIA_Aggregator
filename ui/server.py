@@ -462,13 +462,20 @@ async def export_manifest_endpoint(request: Request):
 
 
 @app.get("/api/v1/records")
-async def export_records(request: Request, cursor: Optional[str] = None, limit: int = 100):
+async def export_records(
+    request: Request,
+    cursor: Optional[str] = None,
+    limit: int = 100,
+    published_since: Optional[str] = None,
+    published_until: Optional[str] = None,
+):
     limited = _export_rate_limited(request)
     if limited:
         return limited
     conn = get_db()
     try:
-        page = export_page(conn, cursor=cursor, limit=limit)
+        page = export_page(conn, cursor=cursor, limit=limit,
+                           published_since=published_since, published_until=published_until)
     except ExportCursorError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
@@ -649,6 +656,90 @@ async def coverage_page(request: Request):
 @app.get("/api/v1/coverage")
 async def coverage_api(request: Request):
     return _export_rate_limited(request) or JSONResponse(_coverage())
+
+
+RECENT_MAX_DAYS = 366
+
+
+def _recent_window(days: Optional[str], since: Optional[str], until: Optional[str]):
+    """Resolve /recent parameters to an inclusive (since, until, days) window."""
+    from datetime import date as _date, timedelta
+
+    def parse(value, label):
+        if not value:
+            return None
+        try:
+            if len(value) != 10:
+                raise ValueError
+            return _date.fromisoformat(value).isoformat()
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"{label} must be YYYY-MM-DD") from None
+
+    since_value, until_value = parse(since, "since"), parse(until, "until")
+    day_count = None
+    if since_value is None:
+        try:
+            day_count = int(days) if days not in (None, "") else 7
+        except ValueError:
+            raise HTTPException(status_code=400, detail="days must be an integer") from None
+        if not 1 <= day_count <= RECENT_MAX_DAYS:
+            raise HTTPException(status_code=400, detail=f"days must be 1..{RECENT_MAX_DAYS}")
+        today = datetime.now(timezone.utc).date()
+        since_value = (today - timedelta(days=day_count)).isoformat()
+    if until_value and since_value > until_value:
+        raise HTTPException(status_code=400, detail="since must not be after until")
+    return since_value, until_value, day_count
+
+
+@app.get("/recent", response_class=HTMLResponse)
+async def recent_releases(
+    request: Request,
+    days: Optional[str] = Query(None, max_length=4),
+    since: Optional[str] = Query(None, max_length=10),
+    until: Optional[str] = Query(None, max_length=10),
+    page: int = Query(1, ge=1, le=10000),
+):
+    """Records whose detected published date falls in a window (default 7 days)."""
+    since_value, until_value, day_count = _recent_window(days, since, until)
+    page_size = 50
+    conn = get_db()
+    try:
+        documents, total = query_documents_page(
+            conn, start_date=since_value, end_date=until_value,
+            sort="published_desc", page=page, page_size=page_size,
+        )
+        undated = conn.execute(
+            "SELECT COUNT(*) FROM documents WHERE published_date IS NULL OR published_date = ''"
+        ).fetchone()[0]
+        requests_table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='third_party_requests'"
+        ).fetchone() is not None
+    finally:
+        conn.close()
+    total_pages = max(1, math.ceil(total / page_size))
+    base = {"since": since_value} if day_count is None else {"days": day_count}
+    if until_value:
+        base["until"] = until_value
+    return templates.TemplateResponse(
+        request=request,
+        name="recent.html",
+        context=_template_context(
+            request,
+            documents=[dict(row) for row in documents],
+            total=total,
+            undated=undated,
+            since=since_value,
+            until=until_value,
+            days=day_count,
+            page=page,
+            total_pages=total_pages,
+            previous_url=f"/recent?{urlencode({**base, 'page': page - 1})}" if page > 1 else None,
+            next_url=f"/recent?{urlencode({**base, 'page': page + 1})}" if page < total_pages else None,
+            api_url="/api/v1/records?" + urlencode(
+                {"published_since": since_value, **({"published_until": until_value} if until_value else {})}),
+            show_requests_link=requests_table,
+        ),
+    )
 
 
 @app.get("/about", response_class=HTMLResponse)
