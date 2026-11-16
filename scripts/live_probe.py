@@ -119,12 +119,13 @@ def muckrock_discovery(cfg) -> None:
         out(f"  api_v2 root: {json.dumps(root)[:500]}")
 
 
+# (path, verbatim line ranges); other lines are filtered by SOURCE_HINTS.
 MUCKROCK_SOURCE_FILES = (
-    "muckrock/foia/api_v2/viewsets.py",
-    "muckrock/foia/api_v2/serializers.py",
-    "muckrock/foia/api_v2/filters.py",
-    "muckrock/core/api_v2/pagination.py",
-    "muckrock/settings/base.py",
+    ("muckrock/foia/api_v2/viewsets.py", ((40, 60),)),
+    ("muckrock/foia/api_v2/serializers.py", ((48, 118), (282, 300), (342, 375))),
+    ("muckrock/core/pagination.py", ((1, 200),)),
+    ("muckrock/settings/base.py", ()),
+    ("muckrock/urls.py", ()),
 )
 SOURCE_HINTS = ("filter", "ordering", "fields", "class ", "permission", "throttl", "datetime",
                 "page_size", "cursor", "authentication", "lookup_expr", "status", "router", "DEFAULT_")
@@ -134,7 +135,7 @@ def muckrock_source(cfg) -> None:
     """Read MuckRock's public open-source API definition (raw GitHub files)."""
     out("## MuckRock API v2 shape from public source (github.com/MuckRock/muckrock)")
     limiter = HostRateLimiter(1.0)
-    for path in MUCKROCK_SOURCE_FILES:
+    for path, verbatim in MUCKROCK_SOURCE_FILES:
         url = f"https://raw.githubusercontent.com/MuckRock/muckrock/master/{path}"
         try:
             status, _, _, text = fetch_text(url, cfg, limiter, accept="text/plain", max_bytes=600_000)
@@ -148,6 +149,13 @@ def muckrock_source(cfg) -> None:
         for number, line in enumerate(text.splitlines(), 1):
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
+                continue
+            if any(lo <= number <= hi for lo, hi in verbatim):
+                out(f"  {number:4}| {line.rstrip()[:170]}")
+                continue
+            if path.endswith("urls.py"):
+                if "api" in stripped.lower() or "router" in stripped.lower():
+                    out(f"  {number:4}: {stripped[:170]}")
                 continue
             if settings_file and not any(t in stripped for t in ("REST_FRAMEWORK", "THROTTLE", "PAGE_SIZE", "DEFAULT_", "rest_framework")):
                 continue
