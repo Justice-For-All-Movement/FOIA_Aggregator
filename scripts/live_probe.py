@@ -458,7 +458,13 @@ def broad_crawl(cfg_path: str, days: int, shard: int, shards: int) -> None:
                     f"{row['remote_content_length']}B {str(row['title'])[:60]} {row['url'][:110]}")
         finally:
             conn.close()
+        conn = get_connection(f"{tmp}/probe.db")
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.execute("VACUUM")
+        conn.close()
+        db_bytes = Path(f"{tmp}/probe.db").stat().st_size
     summary = {
+        "db_bytes": db_bytes,
         "shard": shard, "shards": shards, "days": days, "window": window, "engine": stats,
         "elapsed_seconds": round(_time.monotonic() - started),
         "median_size": statistics.median(sizes) if sizes else None,
@@ -490,6 +496,9 @@ def aggregate(directory: str) -> None:
     out(f"links={total('docs')} dated={total('dated')} last_modified_dated={total('header')} "
         f"in_{days}d={total('in_window')} in_30d={total('in_30')} sized={total('sized')}")
     out(f"bytes of all sized links={total('bytes'):,}; median document size={int(median):,}")
+    db_bytes = sum(int(shard.get("db_bytes") or 0) for shard in shards)
+    out(f"metadata-only SQLite size across shards={db_bytes:,} bytes "
+        f"(~{db_bytes / max(1, total('docs')):,.0f} bytes per record)")
     out(f"estimated bytes released in last {days}d (sized + unsized*median)={int(window_bytes):,} "
         f"(~{window_bytes / 1e9:.2f} GB/week); last 30d sized bytes={total('bytes_30'):,} "
         f"(~{total('bytes_30') / 4.3 / 1e9:.2f} GB/week averaged)")
@@ -558,6 +567,14 @@ def diagnose(cfg) -> None:
         from foia_archive.feeds import parse_feed
         items = parse_feed(feed, "https://vault.fbi.gov/")
         out(f"  vault feed items={len(items)} first={items[:2]}")
+        if items and items[0]["url"].endswith("/view"):
+            import requests as _rq
+            file_url = items[0]["url"][: -len("/view")]
+            if POLICY.allowed(file_url, ua):
+                limiter.wait(file_url)
+                head = _rq.head(file_url, headers={"User-Agent": ua}, timeout=20, allow_redirects=True)
+                out(f"  vault file HEAD {file_url}: {head.status_code} type={head.headers.get('Content-Type')} "
+                    f"length={head.headers.get('Content-Length')} lm={head.headers.get('Last-Modified')}")
         if items:
             _, _, final, html = fetch_text(items[0]["url"], cfg, limiter, accept="text/html")
             soup = BeautifulSoup(html, "html.parser")

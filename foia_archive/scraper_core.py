@@ -1220,6 +1220,12 @@ def _fetch_pal_resource(
             if status_code in REDIRECT_STATUS_CODES:
                 headers_map = getattr(response, "headers", {}) or {}
                 location = headers_map.get("Location") or headers_map.get("location")
+                if location and "errormessage" in location.lower():
+                    # Current FOIAXpress PAL releases gate search/download
+                    # behind a visitor CAPTCHA; record BLOCKED, never evade.
+                    raise SourceAccessBlocked(
+                        f"PAL endpoint {url} requires visitor verification (CAPTCHA); not evaded"
+                    )
                 raise requests.HTTPError(
                     f"Unexpected redirect from PAL endpoint {url} to {location or 'unknown'}"
                 )
@@ -2624,7 +2630,19 @@ def _enqueue_feed_items(body, feed_url, target, scope, frontier, queued_pages, s
         return
     pages = []
     for item in items:
-        for raw in [item["url"], *(item.get("enclosures") or [])]:
+        candidates = [item["url"], *(item.get("enclosures") or [])]
+        if urlparse(item["url"]).path.endswith("/view"):
+            # Plone file items (e.g. FBI Vault): ".../<file>/view" is the
+            # viewer page; ".../<file>" itself serves the released file.
+            candidates[0] = item["url"][: -len("/view")] + "#plone-file"
+        for raw in candidates:
+            if raw.endswith("#plone-file"):
+                url = canonicalize_url(raw[: -len("#plone-file")])
+                if url and (document_allowed is None or document_allowed(url)):
+                    if not handle_document(url, item.get("title") or url, item.get("published_date"),
+                                           "pdf", target.url):
+                        return
+                continue
             url = canonicalize_url(raw)
             if not url:
                 continue

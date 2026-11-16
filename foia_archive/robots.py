@@ -41,7 +41,11 @@ class RobotsPolicy:
             unreachable = False
             why = "robots.txt rule"
             try:
-                status, text = self._fetch(origin + "/robots.txt", user_agent)
+                try:
+                    status, text = self._fetch(origin + "/robots.txt", user_agent)
+                except requests.Timeout:
+                    # One patient retry before treating the host as unreachable.
+                    status, text = self._fetch(origin + "/robots.txt", user_agent, timeout=45)
                 if 200 <= status < 300:
                     parser = robotparser.RobotFileParser()
                     parser.parse(text.splitlines())
@@ -94,13 +98,13 @@ def _token(user_agent: str) -> str:
     return (user_agent or "*").split("/", 1)[0].strip() or "*"
 
 
-def _fetch_robots(url: str, user_agent: str) -> Tuple[int, str]:
+def _fetch_robots(url: str, user_agent: str, timeout: float = 20) -> Tuple[int, str]:
     from .scraper_core import _validate_public_destination
 
     current = url
     for _ in range(5):
         _validate_public_destination(current)
-        response = requests.get(current, headers={"User-Agent": user_agent}, timeout=15,
+        response = requests.get(current, headers={"User-Agent": user_agent}, timeout=timeout,
                                 allow_redirects=False, stream=True)
         try:
             if response.status_code in (301, 302, 303, 307, 308) and response.headers.get("Location"):

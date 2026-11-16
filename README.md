@@ -4,6 +4,8 @@ An expanding, provenance-preserving archive of publicly released U.S. federal FO
 
 **Complete development and independent-account handoff plan:** [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md). This includes the approved ten-unit operating roadmap and the additional fourteen-unit broad-corpus program. **Priority:** grow verified coverage of available official and third-party FOIA records before substantially developing FOIA Bias Analysis or Send FOIA Log Requests.
 
+**Owner quickstart (zero keys → first results, then optional storage):** [docs/OWNER_QUICKSTART.md](docs/OWNER_QUICKSTART.md).
+
 **Other starting points:** [docs/CORPUS_EXPANSION.md](docs/CORPUS_EXPANSION.md) for B2/storage limits; [docs/SOURCE_ACCESS.md](docs/SOURCE_ACCESS.md) for lawful crawling; [docs/PRESENTATION_DEPLOYMENT.md](docs/PRESENTATION_DEPLOYMENT.md) for deployment. The existing web UI is not a claim that all federal FOIA records have been archived.
 
 ## Setup
@@ -82,7 +84,7 @@ Crawl limits and request pacing are configured under `crawler` in `config/settin
 
 ## Public source access compatibility
 
-Some official public reading rooms reject generic HTTP clients with HTTP 403 even when the same resource is available in a normal browser. The crawler can preserve ordinary session cookies within a reading-room crawl and retry a 403 once with conventional browser-compatible headers.
+Some official public reading rooms reject generic HTTP clients with HTTP 403. The crawler preserves ordinary session cookies within a reading-room crawl but treats a 403 as an access decision: the browser-header retry (`crawler.browser_compatibility_fallback`) is off by default. `robots.txt` (RFC 9309) is honoured for every request, including `Crawl-delay`; an unreachable robots.txt means the source is skipped for that run.
 
 Persistent 403 responses remain classified as access-blocked and visible in administrator telemetry. The crawler does not attempt CAPTCHA solving, proxy rotation, authenticated-session spoofing, or any other bypass of deliberate access controls. See `docs/SOURCE_ACCESS.md`.
 

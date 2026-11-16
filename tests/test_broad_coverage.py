@@ -251,8 +251,12 @@ class ParallelEngineTests(unittest.TestCase):
 
             with patch("foia_archive.scraper_core._validate_public_destination", return_value=None), \
                     patch("foia_archive.scraper_core.requests.get", side_effect=fake_get):
+                stats = {}
                 run_once(config_path=str(path), dry_run=True, max_docs_per_source=5,
-                         refresh_metadata_enabled=False, backup_enabled=False)
+                         refresh_metadata_enabled=False, backup_enabled=False,
+                         published_window={"since": "2026-01-01", "until": None, "include_unknown": False},
+                         window_stats_out=stats)
+            self.assertEqual(stats["unknown_date"], 5)  # merged once per worker, not compounded
             conn = get_connection(db)
             docs = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
             ok = conn.execute("SELECT COUNT(*) FROM reading_rooms WHERE last_successful_crawl_at IS NOT NULL").fetchone()[0]
@@ -262,3 +266,38 @@ class ParallelEngineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UniformHeaderDateTests(unittest.TestCase):
+    def test_uniform_recent_last_modified_is_not_a_release_date(self):
+        from foia_archive.scraper_core import _uniform_recent_header_date
+        today = TODAY.isoformat()
+        self.assertEqual(_uniform_recent_header_date({today: 19, "2024-01-01": 1}), today)
+        self.assertIsNone(_uniform_recent_header_date({today: 5}))                      # too few
+        self.assertIsNone(_uniform_recent_header_date({today: 10, "2024-01-01": 10}))   # varied
+        self.assertIsNone(_uniform_recent_header_date({"2023-05-01": 30}))              # old: a real batch
+
+
+class PloneFeedAndPalTests(CrawlCase):
+    def test_plone_view_items_become_file_documents(self):
+        feed = ('<rss><channel><item><title>Part 01</title>'
+                '<link>https://example.gov/reading-room/rec/rec-part-01/view</link>'
+                '<pubDate>Mon, 16 Nov 2026 00:00:00 -0500</pubDate></item></channel></rss>')
+        self.crawl({ROOT: '<link rel="alternate" type="application/rss+xml" href="RSS">',
+                    ROOT + "RSS": Resp(feed, "text/xml")}, self.config(depth=1))
+        rows = self.rows()
+        self.assertIn("rec-part-01", rows)
+        self.assertEqual(rows["rec-part-01"]["published_date"], "2026-11-16")
+
+    def test_pal_captcha_redirect_is_blocked_not_evaded(self):
+        from foia_archive.scraper_core import SourceAccessBlocked, _fetch_pal_resource
+        import requests as rq
+
+        class Session:
+            def request(self, *a, **k):
+                return Resp(status=302, headers={"Location": "/App/ErrorMessage.aspx"})
+        with self.assertRaises(SourceAccessBlocked):
+            _fetch_pal_resource(Session(), "POST", "https://e.gov/app/SearchDocs.aspx",
+                                self.config(), HostRateLimiter(0))
+        self.assertTrue(issubclass(SourceAccessBlocked, RuntimeError))
+        del rq
