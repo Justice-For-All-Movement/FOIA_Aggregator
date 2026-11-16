@@ -21,8 +21,12 @@ class PalAdapterParsingTests(unittest.TestCase):
                 "https://securefoia.ntsb.gov/app/ReadingRoom.aspx"
             )
         )
+        # Any official .gov/.mil FOIAXpress PAL path; never other domains.
+        self.assertTrue(
+            is_pal_reading_room("https://securefoia.epa.gov/app/ReadingRoom.aspx")
+        )
         self.assertFalse(
-            is_pal_reading_room("https://example.gov/app/ReadingRoom.aspx")
+            is_pal_reading_room("https://example.com/app/ReadingRoom.aspx")
         )
         self.assertFalse(
             is_pal_reading_room("https://securefoia.ntsb.gov/app/Other.aspx")

@@ -14,10 +14,11 @@ crawler:
   # Last-Modified for links whose page shows no date (0 disables).
   max_head_date_probes_per_source: 25
   user_agent: "FOIAArchiveBot/0.1 (+https://github.com/Justice-For-All-Movement/FOIA_Aggregator)"
-  # Some public agency/CDN configurations reject non-browser HTTP clients even
-  # for otherwise public reading rooms. Retry a 403 once with ordinary
-  # browser-compatible request headers, without attempting CAPTCHA/auth bypass.
-  browser_compatibility_fallback: true
+  # A 403 is an access decision: record the source as BLOCKED and never retry
+  # with disguised (browser) headers. Kept as a switch for audits only.
+  browser_compatibility_fallback: false
+  # RFC 9309: honour robots.txt Disallow and Crawl-delay for every request.
+  respect_robots_txt: true
   preserve_session_cookies: true
   browser_user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 

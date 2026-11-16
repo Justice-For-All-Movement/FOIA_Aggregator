@@ -261,7 +261,8 @@ class ArchiveStorageTests(unittest.TestCase):
             self.assertEqual(call.kwargs["aws_secret_access_key"], "secret")
             self.assertEqual(call.kwargs["endpoint_url"], "https://endpoint.example")
             self.assertEqual(call.kwargs["region_name"], "region")
-        self.assertNotIn("config", create_client.call_args_list[0].kwargs)
+        # Document client keeps SDK default retries (only checksum/addressing options).
+        self.assertIsNone(getattr(create_client.call_args_list[0].kwargs.get("config"), "retries", None))
         self.assertEqual(create_client.call_args_list[1].kwargs["config"].retries["total_max_attempts"], 1)
 
     def test_factory_discovers_unique_bucket_from_scoped_key(self):

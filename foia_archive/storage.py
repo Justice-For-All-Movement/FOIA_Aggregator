@@ -16,7 +16,7 @@ def ensure_dirs(db_path: Path, files_dir: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
 
-DB_BUSY_TIMEOUT_MS = 5000
+DB_BUSY_TIMEOUT_MS = 30000
 
 
 def get_connection(db_path: Path | str) -> sqlite3.Connection:
@@ -245,6 +245,29 @@ def _migration_15_release_date_sources(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_newly_found ON documents(newly_found_at)")
 
 
+def _migration_16_page_baselines(conn: sqlite3.Connection) -> None:
+    """Page-level baselines and remote sizes (Content-Length from HEAD)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS source_pages (
+            reading_room_id INTEGER NOT NULL,
+            url TEXT NOT NULL,
+            first_crawled_at TEXT NOT NULL,
+            last_crawled_at TEXT NOT NULL,
+            depth INTEGER,
+            PRIMARY KEY (reading_room_id, url)
+        )
+        """
+    )
+    if "url" in _table_columns(conn, "documents"):
+        _ensure_columns(conn, "documents", {"remote_content_length": "INTEGER"})
+
+
+def _migration_17_wayback_preservation(conn: sqlite3.Connection) -> None:
+    from .wayback import create_tables
+    create_tables(conn)
+
+
 MIGRATIONS: Tuple[
     Tuple[int, str, Callable[[sqlite3.Connection], None]],
     ...,
@@ -264,6 +287,8 @@ MIGRATIONS: Tuple[
     (13, "acquisition and work queues", _migration_13_acquisition_and_work_queues),
     (14, "third-party public request metadata", _migration_14_third_party_requests),
     (15, "release date sources and newly-found baseline", _migration_15_release_date_sources),
+    (16, "page-level crawl baselines and remote sizes", _migration_16_page_baselines),
+    (17, "wayback machine preservation", _migration_17_wayback_preservation),
 )
 
 
@@ -403,7 +428,8 @@ def deactivate_reading_rooms_not_seen(
         """
         UPDATE reading_rooms
         SET active = 0
-        WHERE last_seen_at IS NULL OR last_seen_at != ?
+        WHERE (last_seen_at IS NULL OR last_seen_at != ?)
+          AND COALESCE(source_type, '') NOT LIKE 'linked%'
         """,
         (seen_at,),
     )
@@ -1119,6 +1145,9 @@ def get_document_detail(
             d.local_path,
             d.storage_backend,
             d.storage_key,
+            d.remote_content_length,
+            d.wayback_url,
+            d.wayback_status,
             a.name AS agency_name,
             o.name AS office_name,
             dt.extraction_status,
@@ -1320,6 +1349,37 @@ def update_download_metadata(
     conn.commit()
 
 
+def mark_text_only(
+    conn: sqlite3.Connection,
+    document_id: int,
+    downloaded_at: str,
+    *,
+    mime_type: Optional[str],
+    file_size: Optional[int],
+    sha256: Optional[str],
+    reason: str,
+) -> None:
+    """Original fetched and hashed, text kept, file not retained (policy)."""
+    conn.execute(
+        """
+        UPDATE documents
+        SET local_path = NULL,
+            downloaded_at = ?,
+            mime_type = ?,
+            file_size = ?,
+            sha256 = ?,
+            storage_backend = 'none',
+            storage_key = NULL,
+            download_status = 'text_only',
+            download_error = ?,
+            last_download_attempt_at = ?
+        WHERE id = ?
+        """,
+        (downloaded_at, mime_type, file_size, sha256, reason[:500], downloaded_at, document_id),
+    )
+    conn.commit()
+
+
 def update_download_failure(
     conn: sqlite3.Connection,
     document_id: int,
@@ -1431,6 +1491,44 @@ def record_reading_room_crawl_failure(
         WHERE id = ?
         """,
         (timestamp, error, timestamp, rr_id),
+    )
+    conn.commit()
+
+
+def known_source_pages(conn: sqlite3.Connection, rr_id: int) -> set[str]:
+    """Pages of a source fetched by an earlier successful crawl."""
+    return {
+        row[0] for row in conn.execute(
+            "SELECT url FROM source_pages WHERE reading_room_id = ?", (rr_id,)
+        )
+    }
+
+
+def record_source_pages(
+    conn: sqlite3.Connection,
+    rr_id: int,
+    pages: Dict[str, int],
+    timestamp: str,
+) -> None:
+    """Remember which pages a completed crawl reached (url -> depth)."""
+    conn.executemany(
+        """
+        INSERT INTO source_pages (reading_room_id, url, first_crawled_at, last_crawled_at, depth)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(reading_room_id, url) DO UPDATE SET
+            last_crawled_at = excluded.last_crawled_at,
+            depth = MIN(COALESCE(source_pages.depth, excluded.depth), excluded.depth)
+        """,
+        [(rr_id, url, timestamp, timestamp, depth) for url, depth in pages.items()],
+    )
+    conn.commit()
+
+
+def set_remote_content_length(conn: sqlite3.Connection, url: str, length: Optional[int]) -> None:
+    if length is None or length < 0:
+        return
+    conn.execute(
+        "UPDATE documents SET remote_content_length = ? WHERE url = ?", (int(length), url)
     )
     conn.commit()
 

@@ -1,7 +1,9 @@
 name: live-probe
 
-# Bounded, read-only live probe of public sources. No secrets, no B2, no
-# document downloads; polite per-host delays and the honest crawler UA.
+# Bounded, read-only live probe of public sources. No secrets, no storage, no
+# document downloads: listing pages plus bounded HEAD requests (Last-Modified,
+# Content-Length), robots.txt honoured, polite per-host delays and the honest
+# crawler UA. Sources are sharded by organisation across parallel runners.
 on:
   pull_request:
   workflow_dispatch:
@@ -16,7 +18,11 @@ concurrency:
 jobs:
   probe:
     runs-on: ubuntu-22.04
-    timeout-minutes: 35
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     env:
       PYTHONPATH: .
     steps:
@@ -26,8 +32,42 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: Live probe (informational; never fails the PR on remote outages)
+      - name: Resolve FOIA.gov published testing key (public; masked)
+        run: |
+          key="$(python scripts/resolve_foia_api_key.py || true)"
+          if [ -n "$key" ]; then
+            echo "::add-mask::$key"
+            echo "FOIA_API_KEY=$key" >> "$GITHUB_ENV"
+          fi
+      - name: Broad window crawl (informational; never fails the PR on remote outages)
+        run: python scripts/live_probe.py "broad-crawl:7:${{ matrix.shard }}/4"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-summary-${{ matrix.shard }}
+          path: probe-summary-*.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  aggregate:
+    needs: probe
+    if: always()
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          path: probe-summaries
+      - name: Coverage and weekly volume estimate
         env:
           # Optional; empty on forks or when unset (listing then records BLOCKED/auth).
           MUCKROCK_API_TOKEN: ${{ secrets.MUCKROCK_API_TOKEN }}
-        run: python scripts/live_probe.py window-crawl:7 muckrock-requests:7
+        run: python scripts/live_probe.py aggregate:probe-summaries diagnose muckrock-requests:7

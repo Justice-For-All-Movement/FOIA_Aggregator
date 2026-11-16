@@ -1,10 +1,14 @@
 """High level orchestration for discovery and scraping."""
 from __future__ import annotations
 
+import copy
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import math
 import sqlite3
+import threading
 import time
+from urllib.parse import urlsplit
 from typing import Optional
 
 from .database_backup import backup_database_to_b2
@@ -16,12 +20,14 @@ from .scraper_core import (
     get_reading_rooms_to_crawl,
 )
 from . import published_window as pw
+from . import wayback
+from .storage_policy import run_download_counter
 from .storage import (
     get_connection,
     init_db,
     record_reading_room_crawl_failure,
 )
-from .utils import load_config, logger
+from .utils import Config, load_config, logger
 
 
 def _record_unexpected_source_failure(
@@ -145,10 +151,22 @@ def run_once(
     # Validate resource limits before any lock, database or network action.
     limits = _validated_cycle_limits(cfg)
 
+    # Shared across host-parallel workers (deep copies keep this object).
+    run_download_counter(cfg)
+
     # Lock the resolved database path before schema writes or external work.
     with exclusive_writer(cfg.storage.get("db_path"), allow_nested=True):
         init_db(cfg.storage.get("db_path"), cfg.storage.get("files_dir"))
         result = _run_cycle(cfg, refresh_metadata_enabled, backup_enabled, limits)
+        if not limits["dry_run"] and wayback.enabled():
+            conn = get_connection(cfg.storage.get("db_path"))
+            try:
+                counts = wayback.preserve(conn, cfg.crawler.get("user_agent", "FOIAArchiveBot/0.1"))
+                logger.info("Wayback preservation: %s", counts)
+            except Exception as exc:  # noqa: BLE001 - preservation never fails a crawl
+                logger.warning("Wayback preservation failed: %s", type(exc).__name__)
+            finally:
+                conn.close()
     window = pw.window_from_config(cfg)
     if window is not None:
         counts = pw.stats(cfg)
@@ -186,13 +204,70 @@ def _validated_cycle_limits(cfg) -> dict:
         raise ValueError("Live crawling requires a positive per-host delay")
     _validate_page_limits(cfg.crawler)
     pw.window_from_config(cfg)  # fail closed on a malformed window
+    parallel_hosts = _bounded_integer(
+        cfg.crawler.get("parallel_hosts", 1), 1, 16, "parallel_hosts"
+    )
     return {
+        "parallel_hosts": parallel_hosts,
         "source_limit": source_limit,
         "max_docs": max_docs,
         "dry_run": dry_run_flag,
         "cycle_limit_seconds": cycle_limit_seconds,
         "per_host_delay": per_host_delay,
     }
+
+
+def _host_group(url: str) -> str:
+    from .scraper_core import registrable_domain
+    try:
+        return registrable_domain(urlsplit(url).hostname or "") or url
+    except ValueError:
+        return url
+
+
+def _merge_counts(target: dict, source: dict) -> None:
+    for key, value in (source or {}).items():
+        if isinstance(value, int) and not isinstance(value, bool):
+            target[key] = target.get(key, 0) + value
+
+
+def _crawl_host_groups(cfg, pending, room_by_id, parallel, crawl_one, stop) -> None:
+    """Crawl different organisations concurrently, each one sequentially.
+
+    Sources sharing a registrable domain stay in one worker, so per-host
+    politeness is unchanged; the shared rate limiter is thread-safe. Each
+    worker uses its own config copy for per-source crawl state; counters are
+    merged back afterwards.
+    """
+    groups: dict = {}
+    for source_id in pending:
+        room = room_by_id.get(source_id)
+        key = _host_group(room["url"]) if room is not None else f"missing-{source_id}"
+        groups.setdefault(key, []).append(source_id)
+    ordered = sorted(groups.values(), key=len, reverse=True)
+    merge_lock = threading.Lock()
+
+    def worker(source_ids):
+        local_cfg = Config(copy.deepcopy(cfg.data))
+        # Counters start empty per worker and are merged back once.
+        for key in (pw.STATS_KEY, "_date_probe_totals"):
+            local_cfg.data.pop(key, None)
+        try:
+            for source_id in source_ids:
+                if stop.is_set():
+                    break
+                crawl_one(source_id, local_cfg)
+        finally:
+            with merge_lock:
+                for key in (pw.STATS_KEY, "_date_probe_totals"):
+                    if key in local_cfg.data:
+                        _merge_counts(cfg.data.setdefault(key, {}), local_cfg.data[key])
+                if local_cfg.data.get("_storage_quota_reached"):
+                    cfg.data["_storage_quota_reached"] = True
+
+    with ThreadPoolExecutor(max_workers=parallel, thread_name_prefix="crawl") as pool:
+        for future in [pool.submit(worker, group) for group in ordered]:
+            future.result()
 
 
 def _run_cycle(cfg, refresh_metadata_enabled, backup_enabled, limits):
@@ -230,44 +305,63 @@ def _run_cycle(cfg, refresh_metadata_enabled, backup_enabled, limits):
     journal = RunJournal(cfg.storage.get("db_path"), policy_fingerprint(cfg), [rr["id"] for rr in rooms])
     completed = journal.completed_sources()
     source_failures = False
-    cap_reached = False
-    time_budget_exhausted = False
     # Resume the original bounded plan, rather than silently shifting its denominator.
     room_by_id = {rr["id"]: rr for rr in rooms}
+    pending = [source_id for source_id in journal.source_ids if source_id not in completed]
+    state = {"failures": False, "cap": False, "time": False}
+    lock = threading.Lock()
+    stop = threading.Event()
+
+    def crawl_one(source_id, local_cfg) -> None:
+        if stop.is_set():
+            return
+        if time.monotonic() - cycle_start >= limits["cycle_limit_seconds"]:
+            # Remaining sources stay unreceipted; the journal resumes them
+            # in the next cycle with the same policy fingerprint.
+            with lock:
+                if not state["time"]:
+                    logger.warning(
+                        "Crawler cycle time budget exhausted; remaining sources deferred"
+                    )
+                state["time"] = True
+            stop.set()
+            return
+        journal.source_started(source_id)
+        if source_id not in room_by_id:
+            journal.source_finished(source_id, "SOURCE_NOT_ELIGIBLE")
+            state["failures"] = True
+            return
+        try:
+            crawl_reading_room(
+                source_id, local_cfg, dry_run=dry_run_flag,
+                max_docs=max_docs, rate_limiter=rate_limiter,
+            )
+            failed = journal.source_failed(source_id)
+            journal.source_finished(source_id, "SOURCE_CRAWL_FAILED" if failed else None)
+            if failed:
+                state["failures"] = True
+            if local_cfg.data.get("_storage_quota_reached"):
+                state["cap"] = True
+                stop.set()
+        except sqlite3.Error:
+            raise
+        except Exception as exc:
+            _record_unexpected_source_failure(local_cfg, source_id, exc)
+            journal.source_finished(source_id, type(exc).__name__)
+            state["failures"] = True
+
+    parallel = limits.get("parallel_hosts", 1)
     try:
-        for source_id in journal.source_ids:
-            if source_id in completed:
-                continue
-            if time.monotonic() - cycle_start >= limits["cycle_limit_seconds"]:
-                # Remaining sources stay unreceipted; the journal resumes them
-                # in the next cycle with the same policy fingerprint.
-                logger.warning(
-                    "Crawler cycle time budget exhausted; remaining sources deferred"
-                )
-                time_budget_exhausted = True
-                break
-            journal.source_started(source_id)
-            if source_id not in room_by_id:
-                journal.source_finished(source_id, "SOURCE_NOT_ELIGIBLE")
-                source_failures = True
-                continue
-            try:
-                crawl_reading_room(
-                    source_id, cfg, dry_run=dry_run_flag,
-                    max_docs=max_docs, rate_limiter=rate_limiter,
-                )
-                failed = journal.source_failed(source_id)
-                journal.source_finished(source_id, "SOURCE_CRAWL_FAILED" if failed else None)
-                source_failures = source_failures or failed
-                if cfg.data.get("_storage_quota_reached"):
-                    cap_reached = True
+        if parallel <= 1:
+            for source_id in pending:
+                crawl_one(source_id, cfg)
+                if stop.is_set():
                     break
-            except sqlite3.Error:
-                raise
-            except Exception as exc:
-                _record_unexpected_source_failure(cfg, source_id, exc)
-                journal.source_finished(source_id, type(exc).__name__)
-                source_failures = True
+        else:
+            _crawl_host_groups(cfg, pending, room_by_id, parallel, crawl_one, stop)
+        source_failures = state["failures"]
+        cap_reached = state["cap"]
+        time_budget_exhausted = state["time"]
         journal.checkpoint("PENDING" if backup_enabled else "EXTERNAL_CHECKPOINT_REQUIRED")
         if time_budget_exhausted:
             journal.finish(metadata_ok=metadata_ok, state="INTERRUPTED",

@@ -57,3 +57,16 @@ The administrator dashboard reports:
 After deploying this compatibility layer, run another broad crawl and compare
 the remaining 403 queue with the pre-deployment baseline. Persistent sources can
 then receive narrow source-specific treatment where appropriate.
+
+## November 2026 update: robots.txt and no header fallback
+
+- Every crawler request (pages, feeds, HEAD probes, downloads, PAL endpoints,
+  probe/API fetches) checks `robots.txt` first (RFC 9309, cached per host per
+  run); `Crawl-delay` raises that host's delay (capped at 60 s). A 4xx
+  robots.txt means no restrictions; an unreachable/5xx robots.txt means the
+  source is skipped for that run and recorded as BLOCKED with the reason.
+- `browser_compatibility_fallback` now defaults to `false`: a 403 is recorded
+  as BLOCKED and never retried with browser-like headers.
+- Document links are kept only on the source's own registrable domain or a
+  known agency document host (e.g. `media.defense.gov`); off-site footer
+  documents are dropped.

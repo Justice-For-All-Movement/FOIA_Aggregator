@@ -1,0 +1,176 @@
+name: Catalog crawl
+
+# The single authoritative writer for the public catalog. Each run:
+#   1. restores the previous catalog (object-storage checkpoint when keys are
+#      configured, otherwise the latest public GitHub Release snapshot);
+#   2. refreshes FOIA.gov sources and crawls every publication source for the
+#      last N days (metadata for everything; text + SHA-256 for in-window
+#      documents; original files only within the storage budget);
+#   3. publishes a verified SQLite snapshot (metadata + extracted text, no
+#      secrets) to the `catalog-snapshot` release, keeping the newest 3.
+# The Render web app downloads that snapshot at startup when no storage keys
+# are set. Scheduled runs need repository variable
+# FOIA_CATALOG_CRAWL_ENABLED=true; manual runs work any time.
+on:
+  schedule:
+    - cron: "41 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      since_days:
+        description: "Download/index documents released in the last N days"
+        required: false
+        default: "7"
+      include_unknown_dates:
+        description: "Also fetch documents with no detectable date (slower, bigger)"
+        type: boolean
+        required: false
+        default: false
+      max_docs_per_source:
+        description: "Maximum in-window documents fetched per source"
+        required: false
+        default: "25"
+
+concurrency:
+  # Shared with every other corpus writer: never two writers at once.
+  group: foia-b2-single-writer
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  crawl:
+    if: github.event_name == 'workflow_dispatch' || vars.FOIA_CATALOG_CRAWL_ENABLED == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 330
+    env:
+      PYTHONPATH: .
+      GH_TOKEN: ${{ github.token }}
+      FOIA_DB_PATH: data/foia_archive.db
+      FOIA_FILES_DIR: data/files
+      FOIA_CRAWLER_DRY_RUN: "false"
+      FOIA_SOURCE_LIMIT: "0"
+      FOIA_MAX_PAGES_PER_SOURCE: "30"
+      FOIA_MAX_DEPTH: "2"
+      FOIA_MAX_DISCOVERED_DOCS_PER_SOURCE: "3000"
+      FOIA_MAX_HEAD_PROBES_PER_SOURCE: "150"
+      FOIA_PARALLEL_HOSTS: "8"
+      FOIA_MAX_CYCLE_SECONDS: "15000"
+      FOIA_RUN_DOWNLOAD_BUDGET_BYTES: "4000000000"
+      FOIA_WAYBACK_ENABLED: ${{ vars.FOIA_WAYBACK_ENABLED || 'false' }}
+      IA_S3_ACCESS_KEY: ${{ secrets.IA_S3_ACCESS_KEY }}
+      IA_S3_SECRET_KEY: ${{ secrets.IA_S3_SECRET_KEY }}
+      FOIA_ORIGINALS_BUDGET_BYTES: ${{ vars.FOIA_ORIGINALS_BUDGET_BYTES }}
+      # S3-compatible object storage (Backblaze B2, Cloudflare R2, Oracle).
+      FOIA_S3_ENDPOINT: ${{ secrets.FOIA_S3_ENDPOINT }}
+      FOIA_S3_BUCKET: ${{ secrets.FOIA_S3_BUCKET }}
+      FOIA_S3_REGION: ${{ secrets.FOIA_S3_REGION }}
+      FOIA_S3_ACCESS_KEY_ID: ${{ secrets.FOIA_S3_ACCESS_KEY_ID }}
+      FOIA_S3_SECRET_ACCESS_KEY: ${{ secrets.FOIA_S3_SECRET_ACCESS_KEY }}
+      B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+      B2_BUCKET: ${{ secrets.B2_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install extraction tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y antiword catdoc tesseract-ocr
+
+      - run: pip install -r requirements.txt
+
+      - name: Resolve FOIA.gov API key
+        env:
+          REPO_FOIA_API_KEY: ${{ secrets.FOIA_API_KEY }}
+        run: |
+          key="${REPO_FOIA_API_KEY:-$(python scripts/resolve_foia_api_key.py)}"
+          echo "::add-mask::$key"
+          echo "FOIA_API_KEY=$key" >> "$GITHUB_ENV"
+
+      - name: Select storage mode
+        run: |
+          if [ -n "${FOIA_S3_ACCESS_KEY_ID:-$B2_KEY_ID}" ] && [ -n "${FOIA_S3_SECRET_ACCESS_KEY:-$B2_APPLICATION_KEY}" ]; then
+            echo "FOIA_STORAGE_BACKEND=s3" >> "$GITHUB_ENV"
+            echo "Storage: S3-compatible object storage (originals within budget)"
+          else
+            echo "FOIA_STORAGE_BACKEND=none" >> "$GITHUB_ENV"
+            echo "Storage: none (metadata + extracted text + SHA-256; originals stay at the source)"
+          fi
+
+      - name: Restore previous catalog (single writer continues from it)
+        run: |
+          mkdir -p data
+          curl -fsSL -o previous-manifest.json \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/catalog-snapshot/latest.json" \
+            || rm -f previous-manifest.json
+          if [ "$FOIA_STORAGE_BACKEND" = "s3" ]; then
+            python main.py bootstrap-db --destination "$FOIA_DB_PATH" || true
+          fi
+          if [ ! -s "$FOIA_DB_PATH" ]; then
+            set +e
+            python main.py bootstrap-github-snapshot --repo "$GITHUB_REPOSITORY" --destination "$FOIA_DB_PATH"
+            code=$?
+            set -e
+            if [ "$code" = "1" ]; then
+              echo "::error::Published snapshot exists but could not be verified; refusing to start from empty."
+              exit 1
+            fi
+          fi
+          if [ -s "$FOIA_DB_PATH" ]; then echo "Continuing from the previous catalog."; else echo "First run: building the baseline catalog."; fi
+
+      - name: Crawl every publication source
+        env:
+          IN_SINCE_DAYS: ${{ inputs.since_days || '7' }}
+          IN_UNKNOWN: ${{ inputs.include_unknown_dates || false }}
+          IN_MAX_DOCS: ${{ inputs.max_docs_per_source || '25' }}
+        run: |
+          set -euo pipefail
+          [[ "$IN_SINCE_DAYS" =~ ^[0-9]{1,4}$ ]] || { echo "since_days must be an integer"; exit 1; }
+          [[ "$IN_MAX_DOCS" =~ ^[0-9]{1,4}$ ]] || { echo "max_docs_per_source must be an integer"; exit 1; }
+          extra=()
+          if [ "$IN_UNKNOWN" = "true" ]; then extra+=(--include-unknown-dates); fi
+          python main.py run --dry-run false --since-days "$IN_SINCE_DAYS" \
+            --max-docs-per-source "$IN_MAX_DOCS" "${extra[@]}"
+
+      - name: Build verified snapshot
+        run: |
+          prev=()
+          if [ -s previous-manifest.json ]; then prev=(--previous-manifest previous-manifest.json); fi
+          python main.py build-catalog-snapshot snapshot-out "${prev[@]}" | tee snapshot-manifest.json
+
+      - name: Publish snapshot release asset (keep newest 3)
+        run: |
+          set -euo pipefail
+          if ! gh release view catalog-snapshot >/dev/null 2>&1; then
+            gh release create catalog-snapshot --latest=false --title "Catalog snapshot (automated)" \
+              --notes "Public FOIA catalog snapshots (record metadata, extracted text, SHA-256) published by the Catalog crawl workflow. The web app installs latest.json's asset at startup."
+          fi
+          gh release upload catalog-snapshot snapshot-out/foia-catalog-*.db.gz
+          gh release upload catalog-snapshot snapshot-out/latest.json --clobber
+          gh release view catalog-snapshot --json assets --jq '.assets[].name' \
+            | python main.py snapshot-prune-plan --keep 3 \
+            | while read -r name; do gh release delete-asset catalog-snapshot "$name" -y; done
+
+      - name: Run summary
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          from pathlib import Path
+          print("## Catalog crawl")
+          print(f"- Storage mode: **{os.environ.get('FOIA_STORAGE_BACKEND')}**")
+          path = Path("snapshot-manifest.json")
+          if path.is_file() and path.read_text().strip().startswith("{"):
+              m = json.loads(path.read_text())
+              print(f"- Snapshot: `{m['asset']}` ({m['bytes']:,} bytes compressed, {m['sqlite_bytes']:,} bytes SQLite)")
+              for key, value in sorted(m["counts"].items()):
+                  print(f"- {key.replace('_', ' ')}: **{value:,}**")
+          else:
+              print("- No snapshot was published.")
+          PY

@@ -141,7 +141,12 @@ jobs:
           if [ -n "$IN_SINCE$IN_SINCE_DAYS$IN_UNTIL" ]; then
             # Out-of-window candidates never consume quota, so allow more
             # in-window documents per source; B2 caps still apply in code.
-            echo "FOIA_MAX_DOCS_PER_SOURCE=10" >> "$GITHUB_ENV"
+            echo "FOIA_MAX_DOCS_PER_SOURCE=25" >> "$GITHUB_ENV"
+            # Windowed runs record metadata for everything they reach.
+            echo "FOIA_MAX_PAGES_PER_SOURCE=30" >> "$GITHUB_ENV"
+            echo "FOIA_MAX_DEPTH=2" >> "$GITHUB_ENV"
+            echo "FOIA_MAX_HEAD_PROBES_PER_SOURCE=150" >> "$GITHUB_ENV"
+            echo "FOIA_PARALLEL_HOSTS=8" >> "$GITHUB_ENV"
           fi
           if [ "$IN_UNKNOWN" = "true" ]; then
             echo "FOIA_PUBLISHED_INCLUDE_UNKNOWN=true" >> "$GITHUB_ENV"

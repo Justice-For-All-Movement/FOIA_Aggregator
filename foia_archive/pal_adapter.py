@@ -48,9 +48,12 @@ def is_pal_reading_room(url: str) -> bool:
         parsed = urlparse(url)
     except ValueError:
         return False
+    host = (parsed.hostname or "").lower()
     return (
         parsed.scheme.lower() in {"http", "https"}
-        and (parsed.hostname or "").lower() in PAL_READING_ROOM_HOSTS
+        # FOIAXpress PAL reading rooms share one public path; accept known
+        # hosts and any official .gov/.mil host serving that path.
+        and (host in PAL_READING_ROOM_HOSTS or host.endswith((".gov", ".mil")))
         and (parsed.path or "").lower().rstrip("/") == PAL_READING_ROOM_PATH
     )
 

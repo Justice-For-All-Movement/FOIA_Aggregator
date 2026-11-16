@@ -36,7 +36,7 @@
 <main class="page">
   {% if archive_status and not archive_status.archive_connected %}
   <div class="archive-notice" role="status">
-    <strong>Archive not connected.</strong> {{ archive_status.message }}
+    <strong>{% if archive_status.mode == 'snapshot' %}Catalog snapshot.{% else %}Archive not connected.{% endif %}</strong> {{ archive_status.message }}
     Original source links remain the authoritative copies.
   </div>
   {% endif %}

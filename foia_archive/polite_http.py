@@ -24,6 +24,7 @@ from .scraper_core import (
     _request_with_safe_redirects,
     _retry_sleep,
 )
+from .robots import policy_for as robots_policy_for
 from .utils import Config
 
 DEFAULT_MAX_BYTES = 2 * 1024 * 1024
@@ -58,6 +59,8 @@ def fetch_text(
                 # Never forward a token through a redirect (possible other host).
                 url, headers=headers, timeout=timeout, max_redirects=0 if token else 3,
                 rate_limiter=rate_limiter,
+                robots=robots_policy_for(config),
+                robots_user_agent=config.crawler.get("user_agent"),
             )
             status = int(getattr(response, "status_code", 200))
             response_headers = dict(getattr(response, "headers", {}) or {})

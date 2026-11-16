@@ -176,7 +176,8 @@ class CheckpointSafetyTests(unittest.TestCase):
         with patch("foia_archive.archive_storage.boto3.client", side_effect=[object(), object()]) as factory:
             backend = B2ArchiveStorage(bucket="fixture", region="us-east-005", endpoint_url="https://s3.us-east-005.backblazeb2.com", key_id="fixture-key", application_key="fixture-value")
         self.assertIsNot(backend.client, backend.checkpoint_client)
-        self.assertNotIn("config", factory.call_args_list[0].kwargs)
+        # Document client keeps SDK default retries (only checksum/addressing options).
+        self.assertIsNone(getattr(factory.call_args_list[0].kwargs.get("config"), "retries", None))
         self.assertEqual(factory.call_args_list[1].kwargs["config"].retries["total_max_attempts"], 1)
 
     def test_real_sdk_makes_one_http_attempt_before_returning_control(self):

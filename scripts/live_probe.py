@@ -11,6 +11,7 @@ public titles, statuses and dates.
 from __future__ import annotations
 
 import json
+import re
 import os
 import sys
 from pathlib import Path
@@ -172,7 +173,7 @@ WINDOW_PROBE_SOURCES = (
     ("https://www.archives.gov/foia/electronic-reading-room", "NARA reading room"),
     ("https://foia.state.gov/", "State FOIA virtual reading room"),
     ("https://www.dol.gov/general/foia/readroom", "DOL reading room"),
-    ("https://www.epa.gov/foia/epa-foia-reading-room", "EPA reading room"),
+    ("https://www.epa.gov/foia/foia-libraries-and-repositories", "EPA FOIA libraries"),
     ("https://www.odni.gov/accountability/", "ODNI accountability"),
 )
 
@@ -259,6 +260,331 @@ def window_crawl(cfg_path: str, days: int) -> None:
             conn.close()
 
 
+FEED_CANDIDATES = (
+    "https://vault.fbi.gov/recently-added/RSS",
+    "https://vault.fbi.gov/recently-added",
+    "https://www.cia.gov/readingroom/rss.xml",
+    "https://www.cia.gov/readingroom/recently-added",
+    "https://www.justice.gov/feeds/opa/justice-news.xml",
+    "https://www.archives.gov/news/rss",
+    "https://www.dhs.gov/news-releases/rss.xml",
+)
+
+
+def source_discovery(cfg) -> None:
+    """Enumerate FOIA.gov publication sources and look for feeds/sitemaps."""
+    import tempfile
+    from collections import Counter
+    from urllib.parse import urljoin, urlsplit
+
+    from bs4 import BeautifulSoup
+
+    from foia_archive.discovery import refresh_metadata
+    from foia_archive.storage import get_connection, init_db
+
+    out("## Source discovery (FOIA.gov metadata, feeds, sitemaps)")
+    rooms = []
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg.data["storage"] = {"backend": "local", "db_path": f"{tmp}/d.db", "files_dir": f"{tmp}/f"}
+        init_db(f"{tmp}/d.db", f"{tmp}/f")
+        try:
+            refresh_metadata(cfg)
+        except Exception as exc:  # noqa: BLE001
+            out(f"metadata refresh error: {type(exc).__name__}: {str(exc)[:200]}")
+        conn = get_connection(f"{tmp}/d.db")
+        rooms = [dict(r) for r in conn.execute(
+            "SELECT url, label, source_type, active FROM reading_rooms ORDER BY url")]
+        conn.close()
+    active = [r for r in rooms if r["active"]]
+    hosts = Counter(urlsplit(r["url"]).hostname for r in active)
+    out(f"sources={len(rooms)} active={len(active)} hosts={len(hosts)} "
+        f"types={dict(Counter(r['source_type'] for r in active))}")
+    for r in active:
+        out(f"  src {r['source_type']}: {r['url']} | {str(r['label'])[:60]}")
+    limiter = HostRateLimiter(2.0)
+    try:
+        _, _, final, html = fetch_text("https://www.epa.gov/foia", cfg, limiter, accept="text/html")
+        soup = BeautifulSoup(html, "html.parser")
+        for a in soup.find_all("a", href=True):
+            label = a.get_text(" ", strip=True)
+            if re.search(r"reading|library|frequently|released|records", label + a["href"], re.I):
+                out(f"  epa link: {label[:70]!r} -> {urljoin(final, a['href'])}")
+    except Exception as exc:  # noqa: BLE001
+        out(f"  epa error {type(exc).__name__}: {str(exc)[:150]}")
+    roots = [u for u, _ in WINDOW_PROBE_SOURCES]
+    for root in roots:
+        try:
+            status, headers, final, html = fetch_text(root, cfg, limiter, accept="text/html", return_blocked=True)
+        except Exception as exc:  # noqa: BLE001
+            out(f"### {root}: {type(exc).__name__}")
+            continue
+        soup = BeautifulSoup(html, "html.parser")
+        feeds = [(l.get("type"), urljoin(final, l.get("href"))) for l in soup.find_all("link", href=True)
+                 if "alternate" in [str(x).lower() for x in (l.get("rel") or [])]]
+        rssish = [urljoin(final, a["href"]) for a in soup.find_all("a", href=True)
+                  if re.search(r"rss|atom|feed|\.xml", a["href"], re.I)][:5]
+        out(f"### {root} -> {status} feeds={feeds[:5]} rss-links={rssish} generator="
+            f"{[m.get('content') for m in soup.find_all('meta', attrs={'name': 'generator'})][:2]}")
+        host = urlsplit(final).scheme + "://" + urlsplit(final).netloc
+        try:
+            rstatus, _, _, robots = fetch_text(host + "/robots.txt", cfg, limiter, accept="text/plain")
+            maps = [l.split(":", 1)[1].strip() for l in robots.splitlines() if l.lower().startswith("sitemap")]
+            out(f"  robots {rstatus} sitemaps={maps[:4]} crawl-delay="
+                f"{[l for l in robots.splitlines() if 'crawl-delay' in l.lower()][:2]}")
+        except Exception as exc:  # noqa: BLE001
+            out(f"  robots error {type(exc).__name__}")
+    for url in FEED_CANDIDATES:
+        try:
+            status, headers, final, text = fetch_text(url, cfg, limiter, accept="application/rss+xml, application/atom+xml, text/xml, text/html", return_blocked=True)
+            ctype = headers.get("Content-Type") or headers.get("content-type")
+            items = len(re.findall(r"<item[ >]|<entry[ >]", text))
+            dates = re.findall(r"<(?:pubDate|updated|published|dc:date)>([^<]{6,40})<", text)[:3]
+            out(f"  feed {url} -> {status} {ctype} items={items} dates={dates} bytes={len(text)}")
+        except Exception as exc:  # noqa: BLE001
+            out(f"  feed {url} error {type(exc).__name__}: {str(exc)[:120]}")
+
+
+def _shard_of(url: str, shards: int) -> int:
+    """Stable shard by registrable domain (one organisation per shard)."""
+    import hashlib
+    from urllib.parse import urlsplit
+
+    from foia_archive.scraper_core import registrable_domain
+
+    domain = registrable_domain(urlsplit(url).hostname or "") or url
+    return int(hashlib.sha256(domain.encode()).hexdigest(), 16) % max(1, shards)
+
+
+def broad_crawl(cfg_path: str, days: int, shard: int, shards: int) -> None:
+    """Dry-run window crawl over every FOIA.gov publication source (sharded).
+
+    Metadata only: listing pages plus bounded HEAD requests (Last-Modified,
+    Content-Length). Writes probe-summary-<shard>.json for aggregation.
+    """
+    import statistics
+    import tempfile
+    import time as _time
+
+    import yaml
+
+    from foia_archive.discovery import refresh_metadata
+    from foia_archive.engine import run_once
+    from foia_archive.published_window import resolve_window
+    from foia_archive.storage import get_connection, init_db, upsert_reading_room
+    from foia_archive.utils import load_config
+
+    out(f"## Broad window crawl shard {shard}/{shards} (dry run, last {days} days)")
+    started = _time.monotonic()
+    with tempfile.TemporaryDirectory() as tmp:
+        data = yaml.safe_load(Path(cfg_path).read_text())
+        data["storage"].update({"backend": "local", "db_path": f"{tmp}/probe.db", "files_dir": f"{tmp}/files"})
+        data["crawler"].update({
+            "dry_run": True,
+            "max_pages_per_source": int(os.getenv("PROBE_MAX_PAGES", "8")),
+            "max_depth": int(os.getenv("PROBE_MAX_DEPTH", "2")),
+            "max_discovered_docs_per_source": 600,
+            "per_host_delay_seconds": float(os.getenv("PROBE_HOST_DELAY", "1.0")),
+            "page_timeout_seconds": 20, "page_max_size_mb": 3,
+            "maximum_cycle_seconds": int(os.getenv("PROBE_CYCLE_SECONDS", "1500")),
+            "max_head_date_probes_per_source": int(os.getenv("PROBE_HEAD_BUDGET", "60")),
+            "head_probe_sizes": True,
+            "parallel_hosts": int(os.getenv("PROBE_PARALLEL", "10")),
+            "failed_source_retry_minutes": 0,
+            "browser_compatibility_fallback": False,
+        })
+        data["downloader"].update({"max_retries": 1})
+        data["database_backup"] = {"enabled": False}
+        config_file = Path(tmp) / "probe.yaml"
+        config_file.write_text(yaml.safe_dump(data))
+        init_db(f"{tmp}/probe.db", f"{tmp}/files")
+        try:
+            refresh_metadata(load_config(str(config_file)))
+        except Exception as exc:  # noqa: BLE001
+            out(f"metadata refresh failed ({type(exc).__name__}); using the fixed probe list")
+            conn = get_connection(f"{tmp}/probe.db")
+            for url, label in WINDOW_PROBE_SOURCES:
+                upsert_reading_room(conn, url, label, "agency", None, None, source_type="reading_room")
+            conn.close()
+        conn = get_connection(f"{tmp}/probe.db")
+        rows = conn.execute("SELECT id, url FROM reading_rooms WHERE active = 1").fetchall()
+        drop = [r["id"] for r in rows if _shard_of(r["url"], shards) != shard]
+        conn.executemany("UPDATE reading_rooms SET active = 0 WHERE id = ?", [(i,) for i in drop])
+        conn.commit()
+        total_sources = len(rows) - len(drop)
+        conn.close()
+        out(f"sources in shard: {total_sources} of {len(rows)}")
+        window = resolve_window(since_days=days)
+        stats: dict = {}
+        run_once(config_path=str(config_file), dry_run=True, max_docs_per_source=600,
+                 refresh_metadata_enabled=False, backup_enabled=False,
+                 published_window=window, window_stats_out=stats)
+        out(f"window={window} engine counts={json.dumps(stats, sort_keys=True)}")
+        since30 = resolve_window(since_days=30)["since"]
+        conn = get_connection(f"{tmp}/probe.db")
+        per_source = []
+        try:
+            for row in conn.execute(
+                """SELECT rr.id, rr.label, rr.url, rr.last_error, rr.last_successful_crawl_at,
+                          COUNT(d.id) AS docs,
+                          SUM(CASE WHEN d.published_date IS NOT NULL AND d.published_date != '' THEN 1 ELSE 0 END) AS dated,
+                          SUM(CASE WHEN d.published_date_source = 'header' THEN 1 ELSE 0 END) AS header,
+                          SUM(CASE WHEN d.published_date >= ? THEN 1 ELSE 0 END) AS in_window,
+                          SUM(CASE WHEN d.published_date >= ? THEN 1 ELSE 0 END) AS in_30,
+                          SUM(CASE WHEN d.remote_content_length IS NOT NULL THEN 1 ELSE 0 END) AS sized,
+                          SUM(COALESCE(d.remote_content_length, 0)) AS bytes,
+                          SUM(CASE WHEN d.published_date >= ? THEN COALESCE(d.remote_content_length, 0) ELSE 0 END) AS window_bytes,
+                          SUM(CASE WHEN d.published_date >= ? AND d.remote_content_length IS NULL THEN 1 ELSE 0 END) AS window_unsized,
+                          SUM(CASE WHEN d.published_date >= ? THEN COALESCE(d.remote_content_length, 0) ELSE 0 END) AS bytes_30,
+                          MAX(d.published_date) AS newest
+                   FROM reading_rooms rr LEFT JOIN documents d ON d.reading_room_id = rr.id
+                   WHERE rr.active = 1 GROUP BY rr.id ORDER BY rr.url""",
+                (window["since"], since30, window["since"], window["since"], since30),
+            ):
+                item = {k: row[k] for k in row.keys()}
+                item["reached"] = bool(row["last_successful_crawl_at"]) and not row["last_error"]
+                item["attempted"] = bool(row["last_successful_crawl_at"] or row["last_error"])
+                per_source.append(item)
+                state = ("FAILED: " + str(row["last_error"])[:110]) if row["last_error"] else (
+                    "reached" if item["reached"] else "not attempted")
+                out(f"  {str(row['label'])[:40]} <{row['url'][:90]}>: {state}; docs={row['docs']} "
+                    f"dated={row['dated'] or 0} (lm={row['header'] or 0}) in_{days}d={row['in_window'] or 0} "
+                    f"in_30d={row['in_30'] or 0} sized={row['sized'] or 0} bytes={row['bytes'] or 0} newest={row['newest']}")
+            sizes = [r[0] for r in conn.execute(
+                "SELECT remote_content_length FROM documents WHERE remote_content_length > 0")]
+            for row in conn.execute(
+                "SELECT title, url, published_date, published_date_source, remote_content_length FROM documents "
+                "WHERE published_date >= ? ORDER BY published_date DESC LIMIT 15", (window["since"],)):
+                out(f"    recent: {row['published_date']} [{row['published_date_source']}] "
+                    f"{row['remote_content_length']}B {str(row['title'])[:60]} {row['url'][:110]}")
+        finally:
+            conn.close()
+        conn = get_connection(f"{tmp}/probe.db")
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.execute("VACUUM")
+        conn.close()
+        db_bytes = Path(f"{tmp}/probe.db").stat().st_size
+    summary = {
+        "db_bytes": db_bytes,
+        "shard": shard, "shards": shards, "days": days, "window": window, "engine": stats,
+        "elapsed_seconds": round(_time.monotonic() - started),
+        "median_size": statistics.median(sizes) if sizes else None,
+        "sources": per_source,
+    }
+    Path(f"probe-summary-{shard}.json").write_text(json.dumps(summary, default=str))
+
+
+def aggregate(directory: str) -> None:
+    """Combine shard summaries into coverage and weekly-volume estimates."""
+    import statistics
+
+    files = sorted(Path(directory).rglob("probe-summary-*.json"))
+    shards = [json.loads(f.read_text()) for f in files]
+    sources = [s for shard in shards for s in shard["sources"]]
+    if not sources:
+        out("no shard summaries found")
+        return
+    days = shards[0]["days"]
+    medians = [s["median_size"] for s in shards if s.get("median_size")]
+    median = statistics.median(medians) if medians else 0
+    reached = [s for s in sources if s["reached"]]
+    failed = [s for s in sources if s["last_error"]]
+    total = lambda key: sum(int(s.get(key) or 0) for s in sources)  # noqa: E731
+    window_bytes = total("window_bytes") + total("window_unsized") * median
+    out(f"## Aggregate over {len(shards)} shards")
+    out(f"sources={len(sources)} reached={len(reached)} failed={len(failed)} "
+        f"not_attempted={len(sources) - len(reached) - len(failed)}")
+    out(f"links={total('docs')} dated={total('dated')} last_modified_dated={total('header')} "
+        f"in_{days}d={total('in_window')} in_30d={total('in_30')} sized={total('sized')}")
+    out(f"bytes of all sized links={total('bytes'):,}; median document size={int(median):,}")
+    db_bytes = sum(int(shard.get("db_bytes") or 0) for shard in shards)
+    out(f"metadata-only SQLite size across shards={db_bytes:,} bytes "
+        f"(~{db_bytes / max(1, total('docs')):,.0f} bytes per record)")
+    out(f"estimated bytes released in last {days}d (sized + unsized*median)={int(window_bytes):,} "
+        f"(~{window_bytes / 1e9:.2f} GB/week); last 30d sized bytes={total('bytes_30'):,} "
+        f"(~{total('bytes_30') / 4.3 / 1e9:.2f} GB/week averaged)")
+    out("engine: " + json.dumps({k: sum(int((s['engine'] or {}).get(k) or 0) for s in shards)
+                                 for k in ('in_window', 'unknown_date', 'out_of_window', 'newly_found')}))
+    errors = {}
+    for s in failed:
+        kind = str(s["last_error"]).split(":", 1)[0]
+        errors[kind] = errors.get(kind, 0) + 1
+    out(f"failure kinds: {errors}")
+    top = sorted(sources, key=lambda s: -(int(s.get("in_window") or 0)))[:15]
+    for s in top:
+        if s.get("in_window"):
+            out(f"  top in-window: {s['in_window']} {s['url'][:90]} bytes={s.get('window_bytes')}")
+
+
+def diagnose(cfg) -> None:
+    """Small, read-only diagnostics for sources the broad probe could not use."""
+    from urllib.parse import urljoin
+
+    from bs4 import BeautifulSoup
+
+    from foia_archive.robots import POLICY
+
+    out("## Diagnostics")
+    limiter = HostRateLimiter(3.0)
+    ua = cfg.crawler.get("user_agent", "FOIAArchiveBot/0.1")
+    for url in ("https://energy.gov/eere/golden-field-office-reading-room", "https://www.copyright.gov/foia/",
+                "https://www.fincen.gov/reading-room-records", "https://www.ttb.gov/ttb-audiences/public/foia",
+                "https://www.fsa.usda.gov/news-room/efoia/electronic-reading-room/index"):
+        allowed = POLICY.allowed(url, ua)
+        out(f"  robots {url}: allowed={allowed} why={POLICY.explain(url)} delay={POLICY.crawl_delay(url, ua)}")
+    for root in ("https://securefoia.epa.gov/app/ReadingRoom.aspx", "https://securefoia.ntsb.gov/app/ReadingRoom.aspx"):
+        try:
+            status, headers, final, html = fetch_text(root, cfg, limiter, accept="text/html", max_bytes=6_000_000)
+        except Exception as exc:  # noqa: BLE001
+            out(f"  pal {root}: {type(exc).__name__}: {str(exc)[:150]}")
+            continue
+        soup = BeautifulSoup(html, "html.parser")
+        hidden = [(i.get("name") or i.get("id")) for i in soup.find_all("input", type="hidden")][:15]
+        scripts = [urljoin(final, sc["src"]) for sc in soup.find_all("script", src=True)]
+        cabinets = len([i for i in soup.find_all("input") if "ChildClick" in (i.get("onclick") or "")])
+        cookies = headers.get("Set-Cookie") or headers.get("set-cookie") or ""
+        out(f"  pal {root}: {status} bytes={len(html)} cabinets={cabinets} hidden={hidden} "
+            f"cookie-names={[c.split('=')[0].strip() for c in cookies.split(',') if '=' in c][:6]}")
+        inline = " ".join(sc.get_text(" ") for sc in soup.find_all("script") if not sc.get("src"))
+        for match in re.finditer(r"SearchDocs[^;]{0,400}", inline):
+            out("    inline: " + " ".join(match.group(0).split())[:400])
+        for src in scripts:
+            if "jquery" in src.lower() or "bootstrap" in src.lower():
+                continue
+            try:
+                _, _, _, js = fetch_text(src, cfg, limiter, accept="*/*", max_bytes=2_000_000)
+            except Exception as exc:  # noqa: BLE001
+                out(f"    script {src}: {type(exc).__name__}")
+                continue
+            for match in re.finditer(r"SearchDocs[^;]{0,600}", js):
+                out(f"    script {src.rsplit('/', 1)[-1]}: " + " ".join(match.group(0).split())[:600])
+            for match in re.finditer(r"(sortBy|sortOrder|pageIndex|doctypes)\s*[:=][^,;]{0,120}", js):
+                out(f"    param {match.group(0)[:140]}")
+        break_after = False
+        if break_after:
+            break
+    try:
+        _, _, _, feed = fetch_text("https://vault.fbi.gov/recently-added/RSS", cfg, limiter, accept="application/rss+xml")
+        from foia_archive.feeds import parse_feed
+        items = parse_feed(feed, "https://vault.fbi.gov/")
+        out(f"  vault feed items={len(items)} first={items[:2]}")
+        if items and items[0]["url"].endswith("/view"):
+            import requests as _rq
+            file_url = items[0]["url"][: -len("/view")]
+            if POLICY.allowed(file_url, ua):
+                limiter.wait(file_url)
+                head = _rq.head(file_url, headers={"User-Agent": ua}, timeout=20, allow_redirects=True)
+                out(f"  vault file HEAD {file_url}: {head.status_code} type={head.headers.get('Content-Type')} "
+                    f"length={head.headers.get('Content-Length')} lm={head.headers.get('Last-Modified')}")
+        if items:
+            _, _, final, html = fetch_text(items[0]["url"], cfg, limiter, accept="text/html")
+            soup = BeautifulSoup(html, "html.parser")
+            links = [urljoin(final, a["href"]) for a in soup.find_all("a", href=True)]
+            out(f"  vault item {final}: links={len(links)} sample-doc-like="
+                f"{[l for l in links if re.search(r'pdf|download|view|part', l, re.I)][:12]}")
+    except Exception as exc:  # noqa: BLE001
+        out(f"  vault error {type(exc).__name__}: {str(exc)[:200]}")
+
+
 DATE_TEXT = (r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? \d{1,2},? \d{4}"
              r"|\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2}")
 
@@ -341,7 +667,24 @@ def main() -> None:
             except Exception as exc:  # noqa: BLE001
                 out(f"window crawl probe error: {type(exc).__name__}: {str(exc)[:300]}")
             continue
-        if section == "muckrock-discovery":
+        if section.startswith("broad-crawl"):
+            _, days_part, shard_part = (section.split(":") + ["7", "0/1"])[:3]
+            shard, _, shards = shard_part.partition("/")
+            try:
+                broad_crawl(os.getenv("FOIA_CONFIG", "config/settings.yaml"), int(days_part or 7),
+                            int(shard or 0), int(shards or 1))
+            except Exception as exc:  # noqa: BLE001
+                out(f"broad crawl probe error: {type(exc).__name__}: {str(exc)[:300]}")
+            continue
+        if section.startswith("aggregate"):
+            aggregate(section.partition(":")[2] or ".")
+            continue
+        if section == "diagnose":
+            diagnose(cfg)
+            continue
+        if section == "source-discovery":
+            source_discovery(cfg)
+        elif section == "muckrock-discovery":
             muckrock_discovery(cfg)
         elif section.startswith("muckrock-requests"):
             muckrock_requests_probe(cfg, int(section.partition(":")[2] or 7))
