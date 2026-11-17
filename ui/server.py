@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import secrets
 import sqlite3
 import time
@@ -660,6 +661,76 @@ async def coverage_page(request: Request):
 @app.get("/api/v1/coverage")
 async def coverage_api(request: Request):
     return _export_rate_limited(request) or JSONResponse(_coverage())
+
+
+_RELEASE_GRANULARITIES = ("month", "quarter", "year")
+
+
+def _release_coverage(granularity: str, since: Optional[str], until: Optional[str],
+                      agency: Optional[str]) -> dict:
+    """Released-vs-held coverage; empty (not an error) before any log is ingested."""
+    from foia_archive.closed_requests import release_coverage
+
+    if granularity not in _RELEASE_GRANULARITIES:
+        granularity = "month"
+    for value in (since, until):
+        if value and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            raise HTTPException(status_code=400, detail="dates must be YYYY-MM-DD")
+    conn = get_db()
+    try:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='closed_requests'").fetchone():
+            return {"granularity": granularity, "since": since, "until": until, "agency": agency,
+                    "totals": None, "rows": [], "definitions": {}, "published_log_sources": []}
+        report = release_coverage(conn, granularity=granularity, since=since, until=until,
+                                  agency=agency or None)
+        report["published_log_sources"] = [dict(r) for r in conn.execute(
+            """SELECT source_id, agency_slug, component, index_url, cadence, state, files_found,
+                      files_ingested, last_checked_at FROM published_log_sources
+               ORDER BY agency_slug""")]
+    finally:
+        conn.close()
+    return report
+
+
+@app.get("/release-coverage", response_class=HTMLResponse)
+async def release_coverage_page(request: Request, granularity: str = "quarter",
+                                since: Optional[str] = None, until: Optional[str] = None,
+                                agency: Optional[str] = None):
+    report = _release_coverage(granularity, since, until, agency)
+    return templates.TemplateResponse(request=request, name="release_coverage.html",
+                                      context=_template_context(request, r=report))
+
+
+@app.get("/api/v1/release-coverage")
+async def release_coverage_api(request: Request, granularity: str = "month",
+                               since: Optional[str] = None, until: Optional[str] = None,
+                               agency: Optional[str] = None):
+    return _export_rate_limited(request) or JSONResponse(
+        _release_coverage(granularity, since, until, agency))
+
+
+@app.get("/api/v1/export/release-gaps.jsonl")
+async def export_release_gaps(request: Request, since: Optional[str] = None,
+                              until: Optional[str] = None, agency: Optional[str] = None):
+    """foia-release-gaps/1 records (no requester identity) for follow-up drafting."""
+    from foia_archive.closed_requests import release_gaps
+
+    limited = _export_rate_limited(request)
+    if limited:
+        return limited
+    for value in (since, until):
+        if value and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            raise HTTPException(status_code=400, detail="dates must be YYYY-MM-DD")
+    conn = get_db()
+    try:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='closed_requests'").fetchone():
+            gaps = []
+        else:
+            gaps = release_gaps(conn, since=since, until=until, agency=agency or None, limit=50_000)
+    finally:
+        conn.close()
+    body = "".join(json.dumps(g, sort_keys=True) + "\n" for g in gaps)
+    return Response(body, media_type="application/x-ndjson")
 
 
 RECENT_MAX_DAYS = 366

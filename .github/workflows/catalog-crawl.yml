@@ -58,6 +58,8 @@ jobs:
       FOIA_MAX_CYCLE_SECONDS: "15000"
       FOIA_RUN_DOWNLOAD_BUDGET_BYTES: "4000000000"
       FOIA_WAYBACK_ENABLED: ${{ vars.FOIA_WAYBACK_ENABLED || 'false' }}
+      # Accountable contact for crawler identification (User-Agent + From header).
+      FOIA_CRAWLER_CONTACT: ${{ vars.FOIA_CRAWLER_CONTACT }}
       IA_S3_ACCESS_KEY: ${{ secrets.IA_S3_ACCESS_KEY }}
       IA_S3_SECRET_KEY: ${{ secrets.IA_S3_SECRET_KEY }}
       FOIA_ORIGINALS_BUDGET_BYTES: ${{ vars.FOIA_ORIGINALS_BUDGET_BYTES }}
@@ -96,8 +98,24 @@ jobs:
       - name: Select storage mode
         run: |
           if [ -n "${FOIA_S3_ACCESS_KEY_ID:-$B2_KEY_ID}" ] && [ -n "${FOIA_S3_SECRET_ACCESS_KEY:-$B2_APPLICATION_KEY}" ]; then
-            echo "FOIA_STORAGE_BACKEND=s3" >> "$GITHUB_ENV"
-            echo "Storage: S3-compatible object storage (originals within budget)"
+            # Backblaze rejects uploads over a cap by closing TLS (clients see SSLError: EOF).
+            # Ask B2 directly first; on a cap or permission problem crawl metadata-only
+            # instead of failing thousands of uploads.
+            set +e
+            if [ -z "$FOIA_S3_ENDPOINT" ] || [[ "$FOIA_S3_ENDPOINT" == *backblazeb2.com* ]]; then
+              python main.py b2-diagnose --write-probe | tee b2-diagnosis.json
+              code=${PIPESTATUS[0]}
+            else
+              code=0
+            fi
+            set -e
+            if [ "$code" = "0" ]; then
+              echo "FOIA_STORAGE_BACKEND=s3" >> "$GITHUB_ENV"
+              echo "Storage: S3-compatible object storage (originals within budget)"
+            else
+              echo "FOIA_STORAGE_BACKEND=none" >> "$GITHUB_ENV"
+              echo "::warning::Object storage is not writable (see b2-diagnosis.json; exit $code). Crawling metadata + text only."
+            fi
           else
             echo "FOIA_STORAGE_BACKEND=none" >> "$GITHUB_ENV"
             echo "Storage: none (metadata + extracted text + SHA-256; originals stay at the source)"
@@ -109,19 +127,20 @@ jobs:
           curl -fsSL -o previous-manifest.json \
             "https://github.com/${GITHUB_REPOSITORY}/releases/download/catalog-snapshot/latest.json" \
             || rm -f previous-manifest.json
+          # Restore both sources and continue from the fresher one: a stale object-storage
+          # checkpoint (e.g. while checkpoint uploads fail) must not replace newer published work.
           if [ "$FOIA_STORAGE_BACKEND" = "s3" ]; then
-            python main.py bootstrap-db --destination "$FOIA_DB_PATH" || true
+            python main.py bootstrap-db --destination data/restore-checkpoint.db || true
           fi
-          if [ ! -s "$FOIA_DB_PATH" ]; then
-            set +e
-            python main.py bootstrap-github-snapshot --repo "$GITHUB_REPOSITORY" --destination "$FOIA_DB_PATH"
-            code=$?
-            set -e
-            if [ "$code" = "1" ]; then
-              echo "::error::Published snapshot exists but could not be verified; refusing to start from empty."
-              exit 1
-            fi
+          set +e
+          python main.py bootstrap-github-snapshot --repo "$GITHUB_REPOSITORY" --destination data/restore-snapshot.db
+          code=$?
+          set -e
+          if [ "$code" = "1" ]; then
+            echo "::error::Published snapshot exists but could not be verified; refusing to start from empty."
+            exit 1
           fi
+          python scripts/pick_newest_catalog.py "$FOIA_DB_PATH" data/restore-checkpoint.db data/restore-snapshot.db || true
           if [ -s "$FOIA_DB_PATH" ]; then echo "Continuing from the previous catalog."; else echo "First run: building the baseline catalog."; fi
 
       - name: Crawl every publication source
@@ -137,6 +156,19 @@ jobs:
           if [ "$IN_UNKNOWN" = "true" ]; then extra+=(--include-unknown-dates); fi
           python main.py run --dry-run false --since-days "$IN_SINCE_DAYS" \
             --max-docs-per-source "$IN_MAX_DOCS" "${extra[@]}"
+
+      - name: Published FOIA logs and closed-request master list
+        # Informational for coverage: a source outage never blocks the snapshot.
+        env:
+          DC_MAX_QUERIES: ${{ vars.FOIA_DOCUMENTCLOUD_MAX_QUERIES || '200' }}
+        run: |
+          set +e
+          python main.py published-logs --summary-json published-logs-summary.json
+          python main.py build-closed-requests | tee closed-requests-summary.json
+          [[ "$DC_MAX_QUERIES" =~ ^[0-9]{1,4}$ ]] || DC_MAX_QUERIES=200
+          python main.py match-documentcloud --max-queries "$DC_MAX_QUERIES"
+          python main.py release-coverage --granularity quarter > release-coverage.json
+          exit 0
 
       - name: Build verified snapshot
         run: |
@@ -173,4 +205,17 @@ jobs:
                   print(f"- {key.replace('_', ' ')}: **{value:,}**")
           else:
               print("- No snapshot was published.")
+          diag = Path("b2-diagnosis.json")
+          if diag.is_file() and diag.read_text().strip().startswith("{"):
+              print(f"- B2 diagnosis verdict: **{json.loads(diag.read_text()).get('verdict')}**")
+          cov = Path("release-coverage.json")
+          if cov.is_file() and cov.read_text().strip().startswith("{"):
+              t = json.loads(cov.read_text()).get("totals") or {}
+              print(f"- Closed requests in logs: **{t.get('closed', 0):,}**; released (denominator): "
+                    f"**{t.get('released', 0):,}**; held: **{t.get('held', 0):,}**; "
+                    f"elsewhere only: {t.get('elsewhere_only', 0):,}; gaps: {t.get('gaps', 0):,}")
+          pls = Path("published-logs-summary.json")
+          if pls.is_file():
+              s = json.loads(pls.read_text())
+              print(f"- Published log sources: {s['sources']} ({s['states']}); log files ingested: {s['files_ingested']}")
           PY

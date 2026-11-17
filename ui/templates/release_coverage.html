@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Released vs held — FOIA Aggregator{% endblock %}
+{% block description %}How many records agencies released, per agency and period, and what share this archive holds.{% endblock %}
+{% block content %}
+<section class="record-header">
+  <p class="eyebrow">Release coverage</p>
+  <h1>Records agencies released — and how many we hold</h1>
+  <p class="record-subtitle">Built from agencies' own FOIA logs. The denominator is every request closed with a
+    full or partial grant, excluding first-party requests (A-files, personnel, medical and claims files), which are
+    never released to the public.</p>
+</section>
+
+<form class="panel" method="get" action="/release-coverage">
+  <label>Period <select name="granularity">
+    {% for g in ["month", "quarter", "year"] %}<option value="{{ g }}" {% if r.granularity == g %}selected{% endif %}>{{ g }}</option>{% endfor %}
+  </select></label>
+  <label>Closed from <input type="date" name="since" value="{{ r.since or '' }}"></label>
+  <label>to <input type="date" name="until" value="{{ r.until or '' }}"></label>
+  <label>Agency <input type="text" name="agency" value="{{ r.agency or '' }}" placeholder="agency slug"></label>
+  <button type="submit">Update</button>
+  <a href="/api/v1/release-coverage?granularity={{ r.granularity }}{% if r.since %}&since={{ r.since }}{% endif %}{% if r.until %}&until={{ r.until }}{% endif %}{% if r.agency %}&agency={{ r.agency }}{% endif %}">JSON</a>
+</form>
+
+{% if not r.totals or not r.totals.closed %}
+<section class="panel"><p class="results-meta">No agency FOIA logs are loaded yet, so the release denominator is unknown.
+  Logs come from agencies that publish them and, later, from log requests.</p></section>
+{% else %}
+<section class="panel">
+  <h2>Totals</h2>
+  <dl class="metadata">
+    <div><dt>Closed requests in logs</dt><dd>{{ "{:,}".format(r.totals.closed) }}</dd></div>
+    <div><dt>First-party (excluded)</dt><dd>{{ "{:,}".format(r.totals.first_party) }}</dd></div>
+    <div><dt>Not released (denied, no records, withdrawn…)</dt><dd>{{ "{:,}".format(r.totals.not_released) }}</dd></div>
+    <div><dt>Released (denominator)</dt><dd>{{ "{:,}".format(r.totals.released) }}</dd></div>
+    <div><dt>Held in this archive</dt><dd>{{ "{:,}".format(r.totals.held) }}{% if r.totals.held_share is not none %} ({{ "%.1f"|format(r.totals.held_share * 100) }}%){% endif %}</dd></div>
+    <div><dt>Found only on MuckRock / DocumentCloud</dt><dd>{{ "{:,}".format(r.totals.elsewhere_only) }}</dd></div>
+    <div><dt>Not located anywhere yet</dt><dd>{{ "{:,}".format(r.totals.gaps) }}</dd></div>
+    <div><dt>Pages released (where logged)</dt><dd>{{ "{:,}".format(r.totals.pages_released) }}</dd></div>
+  </dl>
+</section>
+
+<section class="panel">
+  <h2>By agency and period</h2>
+  <table class="coverage-table">
+    <thead><tr><th>Agency</th><th>Period</th><th>Closed</th><th>First-party</th><th>Released</th><th>Held</th><th>Elsewhere</th><th>Gaps</th><th>Held share</th></tr></thead>
+    <tbody>
+    {% for row in r.rows[:500] %}
+      <tr><td>{{ row.agency_slug }}</td><td>{{ row.period }}</td><td>{{ row.closed }}</td><td>{{ row.first_party }}</td>
+          <td>{{ row.released }}</td><td>{{ row.held }}</td><td>{{ row.elsewhere_only }}</td><td>{{ row.gaps }}</td>
+          <td>{% if row.held_share is not none %}{{ "%.1f"|format(row.held_share * 100) }}%{% else %}—{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Published log sources</h2>
+  {% if r.published_log_sources %}
+  <table class="coverage-table">
+    <thead><tr><th>Agency</th><th>Cadence</th><th>State</th><th>Log files found</th><th>Checked</th></tr></thead>
+    <tbody>{% for s in r.published_log_sources %}
+      <tr><td><a href="{{ s.index_url }}" rel="noopener">{{ s.agency_slug }}{% if s.component %} / {{ s.component }}{% endif %}</a></td>
+          <td>{{ s.cadence }}</td><td>{{ s.state }}</td><td>{{ s.files_found }}</td><td>{{ (s.last_checked_at or '')[:10] }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p class="results-meta">No published log source has been checked yet.</p>{% endif %}
+</section>
+{% endblock %}

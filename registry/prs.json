@@ -13,7 +13,7 @@
   "units": [
     {
       "id": "FA-001",
-      "title": "Backup recovery and archive consistency — approved work package 1 of 2",
+      "title": "Backup recovery and archive consistency \u2014 approved work package 1 of 2",
       "origin": "original",
       "prs": [
         46,
@@ -29,7 +29,7 @@
     },
     {
       "id": "FA-002",
-      "title": "Backup recovery and archive consistency — approved work package 2 of 2",
+      "title": "Backup recovery and archive consistency \u2014 approved work package 2 of 2",
       "origin": "original",
       "prs": [
         40,
@@ -47,7 +47,7 @@
     },
     {
       "id": "FA-003",
-      "title": "Durable autonomous ingestion — approved work package 1 of 2",
+      "title": "Durable autonomous ingestion \u2014 approved work package 1 of 2",
       "origin": "original",
       "prs": [
         41
@@ -61,7 +61,7 @@
     },
     {
       "id": "FA-004",
-      "title": "Durable autonomous ingestion — approved work package 2 of 2",
+      "title": "Durable autonomous ingestion \u2014 approved work package 2 of 2",
       "origin": "original",
       "prs": [
         62
@@ -78,7 +78,7 @@
     },
     {
       "id": "FA-005",
-      "title": "Archive source and extraction coverage — approved work package 1 of 2",
+      "title": "Archive source and extraction coverage \u2014 approved work package 1 of 2",
       "origin": "original",
       "prs": [
         63
@@ -95,7 +95,7 @@
     },
     {
       "id": "FA-006",
-      "title": "Archive source and extraction coverage — approved work package 2 of 2",
+      "title": "Archive source and extraction coverage \u2014 approved work package 2 of 2",
       "origin": "original",
       "prs": [
         64
@@ -112,7 +112,7 @@
     },
     {
       "id": "FA-007",
-      "title": "Engine Room visibility and alerts — approved work package 1 of 2",
+      "title": "Engine Room visibility and alerts \u2014 approved work package 1 of 2",
       "origin": "original",
       "prs": [
         65
@@ -129,7 +129,7 @@
     },
     {
       "id": "FA-008",
-      "title": "Engine Room visibility and alerts — approved work package 2 of 2",
+      "title": "Engine Room visibility and alerts \u2014 approved work package 2 of 2",
       "origin": "original",
       "prs": [
         66
@@ -146,7 +146,7 @@
     },
     {
       "id": "FA-009",
-      "title": "Public release and scale readiness — approved work package 1 of 2",
+      "title": "Public release and scale readiness \u2014 approved work package 1 of 2",
       "origin": "original",
       "prs": [
         67
@@ -165,7 +165,7 @@
     },
     {
       "id": "FA-010",
-      "title": "Public release and scale readiness — approved work package 2 of 2",
+      "title": "Public release and scale readiness \u2014 approved work package 2 of 2",
       "origin": "original",
       "prs": [
         68
@@ -226,7 +226,8 @@
       ],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-03",
       "contributingPrs": [
-        75
+        75,
+        91
       ],
       "dependsOn": [
         "FC-01",
@@ -234,7 +235,7 @@
       ],
       "externalDependencies": [],
       "externalPrerequisites": [],
-      "mappingEvidence": "CSV/TSV/XLSX log normalization with row provenance, confidence and failed-row queue merged via #71 (fixtures). PDF/scanned logs and real official logs pending. #75 exports rows and per agency/year coverage and routes SFL fulfilled logs into FC-03."
+      "mappingEvidence": "CSV/TSV/XLSX log normalization with row provenance, confidence and failed-row queue merged via #71 (fixtures). PDF/scanned logs and real official logs pending. #75 exports rows and per agency/year coverage and routes SFL fulfilled logs into FC-03. #91 adds published-log scraping (registry of 50 unverified official log pages), PDF/XLS parsing, pages_released, and the closed-request master list with first-party exclusion (fixtures; no real log ingested yet)."
     },
     {
       "id": "FC-04",
@@ -244,7 +245,8 @@
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-04",
       "contributingPrs": [
         73,
-        84
+        84,
+        91
       ],
       "dependsOn": [
         "FC-01",
@@ -253,7 +255,7 @@
       ],
       "externalDependencies": [],
       "externalPrerequisites": [],
-      "mappingEvidence": "MuckRock adapter against recorded-shape fixtures (#73, inert). Other third-party archives, live sample and binary dedupe pending. Request-listing mode by date window (MuckRock API v2, token-gated, no requester identity) with /requests and /api/v1/requests (#84); live probe: API BLOCKED by Cloudflare 403 from CI runners, token not yet provided."
+      "mappingEvidence": "MuckRock adapter against recorded-shape fixtures (#73, inert). Other third-party archives, live sample and binary dedupe pending. Request-listing mode by date window (MuckRock API v2, token-gated, no requester identity) with /requests and /api/v1/requests (#84); live probe: API BLOCKED by Cloudflare 403 from CI runners, token not yet provided. #91 matches closed requests to MuckRock tracking ids and DocumentCloud search (fixtures)."
     },
     {
       "id": "FC-05",
@@ -401,7 +403,8 @@
       "prs": [],
       "sourceSection": "docs/DEVELOPMENT_PLAN.md#fc-12",
       "contributingPrs": [
-        77
+        77,
+        91
       ],
       "dependsOn": [
         "FC-01",
@@ -418,7 +421,7 @@
       ],
       "externalDependencies": [],
       "externalPrerequisites": [],
-      "mappingEvidence": "Distinct completeness denominators with explicit unknowns on /coverage and /api/v1/coverage (#77, fixtures). Depends on FC-01..FC-11 evidence being real."
+      "mappingEvidence": "Distinct completeness denominators with explicit unknowns on /coverage and /api/v1/coverage (#77, fixtures). Depends on FC-01..FC-11 evidence being real. #91 adds released-vs-held coverage per agency/period (/release-coverage)."
     },
     {
       "id": "FC-13",
@@ -746,7 +749,7 @@
     {
       "id": 5325805295,
       "number": 68,
-      "title": "FA-010: Public release and scale readiness — approved work package 2 of 2",
+      "title": "FA-010: Public release and scale readiness \u2014 approved work package 2 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/68",
       "state": "closed",
       "draft": false,
@@ -761,7 +764,7 @@
     {
       "id": 5325793964,
       "number": 67,
-      "title": "FA-009: Public release and scale readiness — approved work package 1 of 2",
+      "title": "FA-009: Public release and scale readiness \u2014 approved work package 1 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/67",
       "state": "closed",
       "draft": false,
@@ -776,7 +779,7 @@
     {
       "id": 5325793447,
       "number": 66,
-      "title": "FA-008: Engine Room visibility and alerts — approved work package 2 of 2",
+      "title": "FA-008: Engine Room visibility and alerts \u2014 approved work package 2 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/66",
       "state": "closed",
       "draft": false,
@@ -791,7 +794,7 @@
     {
       "id": 5325792927,
       "number": 65,
-      "title": "FA-007: Engine Room visibility and alerts — approved work package 1 of 2",
+      "title": "FA-007: Engine Room visibility and alerts \u2014 approved work package 1 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/65",
       "state": "closed",
       "draft": false,
@@ -806,7 +809,7 @@
     {
       "id": 5325792350,
       "number": 64,
-      "title": "FA-006: Archive source and extraction coverage — approved work package 2 of 2",
+      "title": "FA-006: Archive source and extraction coverage \u2014 approved work package 2 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/64",
       "state": "closed",
       "draft": false,
@@ -821,7 +824,7 @@
     {
       "id": 5325791811,
       "number": 63,
-      "title": "FA-005: Archive source and extraction coverage — approved work package 1 of 2",
+      "title": "FA-005: Archive source and extraction coverage \u2014 approved work package 1 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/63",
       "state": "closed",
       "draft": false,
@@ -836,7 +839,7 @@
     {
       "id": 5325755803,
       "number": 62,
-      "title": "FA-004: Durable autonomous ingestion — approved work package 2 of 2",
+      "title": "FA-004: Durable autonomous ingestion \u2014 approved work package 2 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/62",
       "state": "closed",
       "draft": false,
@@ -881,7 +884,7 @@
     {
       "id": 4913311936,
       "number": 59,
-      "title": "FA-010: Public release and scale readiness — approved work package 2 of 2",
+      "title": "FA-010: Public release and scale readiness \u2014 approved work package 2 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/59",
       "state": "closed",
       "draft": true,
@@ -896,7 +899,7 @@
     {
       "id": 4913306556,
       "number": 58,
-      "title": "FA-009: Public release and scale readiness — approved work package 1 of 2",
+      "title": "FA-009: Public release and scale readiness \u2014 approved work package 1 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/58",
       "state": "closed",
       "draft": true,
@@ -911,7 +914,7 @@
     {
       "id": 4913302134,
       "number": 57,
-      "title": "FA-008: Engine Room visibility and alerts — approved work package 2 of 2",
+      "title": "FA-008: Engine Room visibility and alerts \u2014 approved work package 2 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/57",
       "state": "closed",
       "draft": true,
@@ -926,7 +929,7 @@
     {
       "id": 4913297502,
       "number": 56,
-      "title": "FA-007: Engine Room visibility and alerts — approved work package 1 of 2",
+      "title": "FA-007: Engine Room visibility and alerts \u2014 approved work package 1 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/56",
       "state": "closed",
       "draft": true,
@@ -941,7 +944,7 @@
     {
       "id": 4913048564,
       "number": 55,
-      "title": "FA-006: Archive source and extraction coverage — approved work package 2 of 2",
+      "title": "FA-006: Archive source and extraction coverage \u2014 approved work package 2 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/55",
       "state": "closed",
       "draft": true,
@@ -956,7 +959,7 @@
     {
       "id": 4913040047,
       "number": 54,
-      "title": "FA-005: Archive source and extraction coverage — approved work package 1 of 2",
+      "title": "FA-005: Archive source and extraction coverage \u2014 approved work package 1 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/54",
       "state": "closed",
       "draft": true,
@@ -971,7 +974,7 @@
     {
       "id": 4913032923,
       "number": 53,
-      "title": "FA-004: Durable autonomous ingestion — approved work package 2 of 2",
+      "title": "FA-004: Durable autonomous ingestion \u2014 approved work package 2 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/53",
       "state": "closed",
       "draft": true,
@@ -986,7 +989,7 @@
     {
       "id": 4898894323,
       "number": 52,
-      "title": "FA-002: Backup recovery and archive consistency — approved work package 2 of 2",
+      "title": "FA-002: Backup recovery and archive consistency \u2014 approved work package 2 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/52",
       "state": "closed",
       "draft": false,
@@ -1001,7 +1004,7 @@
     {
       "id": 4898543384,
       "number": 51,
-      "title": "FA-001: Backup recovery and archive consistency — approved work package 1 of 2",
+      "title": "FA-001: Backup recovery and archive consistency \u2014 approved work package 1 of 2",
       "url": "https://github.com/Justice-For-All-Movement/FOIA_Aggregator/pull/51",
       "state": "closed",
       "draft": false,

@@ -1,0 +1,342 @@
+# Official FOIA request-log index pages scraped by `main.py published-logs`.
+# Seeded 2026-11-17 from web-search research (pages NOT loaded from this sandbox: .gov blocked).
+# verified: true only after a live run found log files on the page. confidence is the research estimate.
+# 2026-11-17 live dry runs: 21 OK (864 log files), 18 BLOCKED (403/robots/CAPTCHA, recorded not evaded),
+# 10 no log links (likely JavaScript-rendered or non-standard pages), 1 DNS failure.
+# CIA does not publish logs (needs a log request). Agencies with no published log are in Send_FOIA_Log_Requests.
+sources:
+  - id: dhs-oig
+    agency_slug: department-of-homeland-security
+    component: "Office of Inspector General (OIG)"
+    index_url: https://oig.dhs.gov/foia/reading-room
+    cadence: quarterly
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: high"
+  - id: dhs-hq
+    agency_slug: department-of-homeland-security
+    component: "Privacy Office / Headquarters (HQ)"
+    index_url: https://www.dhs.gov/foia-library
+    cadence: annual
+    verified: true  # live dry run 2026-11-17 (PR #91, widened link matching) found log files
+    notes: "research confidence: medium"
+  - id: dhs-cbp
+    agency_slug: department-of-homeland-security
+    component: "U.S. Customs and Border Protection (CBP)"
+    index_url: https://www.cbp.gov/documents-library/foia-record
+    cadence: monthly
+    verified: true  # live dry run 2026-11-17 (PR #91, widened link matching) found log files
+    notes: "research confidence: high"
+  - id: dhs-ice
+    agency_slug: department-of-homeland-security
+    component: "U.S. Immigration and Customs Enforcement (ICE)"
+    index_url: https://www.ice.gov/foia-category/ice-foia-logs
+    cadence: monthly
+    verified: false
+    notes: "research confidence: medium"
+  - id: dhs-tsa
+    agency_slug: department-of-homeland-security
+    component: "Transportation Security Administration (TSA)"
+    index_url: https://www.tsa.gov/foia/readingroom
+    cadence: quarterly
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: low"
+  - id: dhs-uscg
+    agency_slug: department-of-homeland-security
+    component: "U.S. Coast Guard (USCG)"
+    index_url: https://dcms.uscg.mil/Our-Organization/Assistant-Commandant-for-C4IT-CG-6/The-Office-of-Information-Management-CG-61/FOIA-Library/FOIA-Logs
+    cadence: quarterly
+    verified: false
+    notes: "research confidence: medium"
+  - id: sec
+    agency_slug: securities-and-exchange-commission
+    index_url: https://www.sec.gov/foia-services/frequently-requested-documents
+    cadence: quarterly
+    verified: false
+    notes: "research confidence: medium"
+  - id: nara
+    agency_slug: national-archives-and-records-administration
+    index_url: https://www.archives.gov/foia/logs.html
+    cadence: irregular
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: medium"
+  - id: nrc
+    agency_slug: nuclear-regulatory-commission
+    index_url: https://www.nrc.gov/reading-rm/foia/recent-requests/2026
+    cadence: monthly
+    verified: false
+    notes: "research confidence: high"
+  - id: ftc
+    agency_slug: federal-trade-commission
+    index_url: https://www.ftc.gov/about-ftc/foia/foia-reading-rooms
+    cadence: irregular
+    verified: false
+    notes: "research confidence: medium"
+  - id: ferc
+    agency_slug: federal-energy-regulatory-commission
+    index_url: https://www.ferc.gov/enforcement-legal/foia/frequently-requested-processed-records
+    cadence: annual
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: high"
+  - id: fdic
+    agency_slug: federal-deposit-insurance-corporation
+    index_url: https://www.fdic.gov/foia
+    cadence: quarterly
+    verified: false
+    notes: "research confidence: high"
+  - id: cfpb
+    agency_slug: consumer-financial-protection-bureau
+    index_url: https://www.consumerfinance.gov/foia-requests/foia-electronic-reading-room/?categories=log
+    cadence: annual
+    verified: true  # live dry run 2026-11-17 (PR #91, widened link matching) found log files
+    notes: "research confidence: high"
+  - id: nasa-headquarters
+    agency_slug: national-aeronautics-and-space-administration
+    component: "Headquarters"
+    index_url: https://www.nasa.gov/foia/nasa-e-libraries/headquarters-foia-library/
+    cadence: quarterly
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: medium"
+  - id: dot-faa
+    agency_slug: department-of-transportation
+    component: "Federal Aviation Administration (FAA)"
+    index_url: https://www.faa.gov/foia/electronic_reading_room/logs
+    cadence: semiannual
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: medium"
+  - id: dot-phmsa
+    agency_slug: department-of-transportation
+    component: "Pipeline and Hazardous Materials Safety Administration (PHMSA)"
+    index_url: https://www.phmsa.dot.gov/foia/phmsa-foia-logs
+    cadence: quarterly
+    verified: false
+    notes: "research confidence: high"
+  - id: dot-fra
+    agency_slug: department-of-transportation
+    component: "Federal Railroad Administration (FRA)"
+    index_url: https://railroads.dot.gov/foia
+    cadence: annual
+    verified: false
+    notes: "research confidence: high"
+  - id: dot-fmcsa
+    agency_slug: department-of-transportation
+    component: "Federal Motor Carrier Safety Administration (FMCSA)"
+    index_url: https://www.fmcsa.dot.gov/foia/fy-24-foia-log
+    cadence: annual
+    verified: false
+    notes: "research confidence: medium"
+  - id: dot-marad
+    agency_slug: department-of-transportation
+    component: "Maritime Administration (MARAD)"
+    index_url: https://www.maritime.dot.gov/about-us/foia/fy-2024-foia-log
+    cadence: annual
+    verified: false
+    notes: "research confidence: medium"
+  - id: dot-ost
+    agency_slug: department-of-transportation
+    component: "Office of the Secretary (OST)"
+    index_url: https://www.transportation.gov/foia
+    cadence: annual
+    verified: false
+    notes: "research confidence: low"
+  - id: epa
+    agency_slug: environmental-protection-agency
+    index_url: https://www.epa.gov/foia/historic-foia-logs
+    cadence: quarterly
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: high"
+  - id: ustreas-irs
+    agency_slug: department-of-the-treasury
+    component: "Internal Revenue Service (IRS)"
+    index_url: https://www.irs.gov/privacy-disclosure/irs-foia-logs
+    cadence: quarterly
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: high"
+  - id: ustreas-do
+    agency_slug: department-of-the-treasury
+    component: "Departmental Offices (DO)"
+    index_url: https://home.treasury.gov/footer/freedom-of-information-act/electronic-read-room/other-frequently-requested-foia-records
+    cadence: quarterly
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: high"
+  - id: ustreas-bep
+    agency_slug: department-of-the-treasury
+    component: "Bureau of Engraving and Printing (BEP)"
+    index_url: https://www.bep.gov/footer/foia/foia-logs
+    cadence: irregular
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: low"
+  - id: usda-aphis
+    agency_slug: department-of-agriculture
+    component: "Animal and Plant Health Inspection Service (APHIS)"
+    index_url: https://www.aphis.usda.gov/freedom-information-act/foia-logs
+    cadence: monthly
+    verified: false
+    notes: "research confidence: high"
+  - id: usda-fsis
+    agency_slug: department-of-agriculture
+    component: "Food Safety and Inspection Service (FSIS)"
+    index_url: https://www.fsis.usda.gov/policy/foia
+    cadence: semiannual
+    verified: false
+    notes: "research confidence: medium"
+  - id: doi-os
+    agency_slug: department-of-the-interior
+    component: "Office of the Secretary (OS)"
+    index_url: https://www.doi.gov/foia/library
+    cadence: monthly
+    verified: false
+    notes: "research confidence: high"
+  - id: doi-bureau-of-indian-affairs---as-ia---bie
+    agency_slug: department-of-the-interior
+    component: "Bureau of Indian Affairs / AS-IA / BIE"
+    index_url: https://www.bia.gov/foia
+    cadence: monthly
+    verified: false
+    notes: "research confidence: high"
+  - id: hhs-fda
+    agency_slug: department-of-health-and-human-services
+    component: "Food and Drug Administration (FDA)"
+    index_url: https://www.fda.gov/regulatory-information/freedom-information/fda-foia-logs
+    cadence: monthly
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: high"
+  - id: hhs-nih
+    agency_slug: department-of-health-and-human-services
+    component: "National Institutes of Health (NIH)"
+    index_url: https://www.nih.gov/institutes-nih/nih-office-director/office-communications-public-liaison/freedom-information-act-office/nih-foia-library/nih-foia-log
+    cadence: annual
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: high"
+  - id: hhs-cms
+    agency_slug: department-of-health-and-human-services
+    component: "Centers for Medicare & Medicaid Services (CMS)"
+    index_url: https://www.cms.gov/about-cms/contact/freedom-information-act
+    cadence: monthly
+    verified: false
+    notes: "research confidence: medium"
+  - id: hhs-cdc
+    agency_slug: department-of-health-and-human-services
+    component: "Centers for Disease Control and Prevention (CDC)"
+    index_url: https://foia.cdc.gov/app/ReadingRoom.aspx
+    cadence: irregular
+    verified: false
+    notes: "research confidence: low"
+  - id: hhs-ihs
+    agency_slug: department-of-health-and-human-services
+    component: "Indian Health Service (IHS)"
+    index_url: https://www.ihs.gov/foia/readingroom/
+    cadence: annual
+    verified: false
+    notes: "research confidence: medium"
+  - id: doj-oip
+    agency_slug: department-of-justice
+    component: "Office of Information Policy (OIP)"
+    index_url: https://www.justice.gov/oip/available-documents-oip
+    cadence: monthly
+    verified: true  # live dry run 2026-11-17 (PR #91, widened link matching) found log files
+    notes: "research confidence: high"
+  - id: doj-eoir
+    agency_slug: department-of-justice
+    component: "Executive Office for Immigration Review (EOIR)"
+    index_url: https://www.justice.gov/eoir/foia-library-0
+    cadence: quarterly
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: high"
+  - id: doj-civil-division
+    agency_slug: department-of-justice
+    component: "Civil Division"
+    index_url: https://www.justice.gov/civil/foia
+    cadence: quarterly
+    verified: false
+    notes: "research confidence: medium"
+  - id: doj-oig
+    agency_slug: department-of-justice
+    component: "Office of the Inspector General (OIG)"
+    index_url: https://oig.justice.gov/foia-reading-room
+    cadence: annual
+    verified: false
+    notes: "research confidence: low"
+  - id: dod-osd-js
+    agency_slug: department-of-defense
+    component: "Office of the Secretary of Defense / Joint Staff (OSD/JS)"
+    index_url: https://www.esd.whs.mil/Records-Declass/FOIA/Reading-Room/Reading-Room-List_2/FOIA_Log/
+    cadence: annual
+    verified: false
+    notes: "research confidence: high"
+  - id: dod-dcsa
+    agency_slug: department-of-defense
+    component: "Defense Counterintelligence and Security Agency (DCSA)"
+    index_url: https://www.dcsa.mil/contact/foia/
+    cadence: quarterly
+    verified: false
+    notes: "research confidence: high"
+  - id: dod-uscybercom
+    agency_slug: department-of-defense
+    component: "U.S. Cyber Command (USCYBERCOM)"
+    index_url: https://www.cybercom.mil/FOIA/
+    cadence: annual
+    verified: false
+    notes: "research confidence: medium"
+  - id: dod-eucom
+    agency_slug: department-of-defense
+    component: "U.S. European Command (EUCOM)"
+    index_url: https://www.eucom.mil/foia
+    cadence: annual
+    verified: false
+    notes: "research confidence: medium"
+  - id: odni
+    agency_slug: office-of-the-director-of-national-intelligence
+    index_url: https://www.dni.gov/index.php/foia
+    cadence: monthly
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: medium"
+  - id: dos
+    agency_slug: department-of-state
+    index_url: https://foia.state.gov/FOIALIBRARY/Logs2.aspx
+    cadence: annual
+    verified: false
+    notes: "research confidence: medium"
+  - id: ed
+    agency_slug: department-of-education
+    index_url: https://www.ed.gov/about/ed-overview/required-notices/freedom-of-information-act-foia/foia-logs
+    cadence: monthly
+    verified: false
+    notes: "research confidence: medium"
+  - id: eeoc
+    agency_slug: equal-employment-opportunity-commission
+    index_url: https://www.eeoc.gov/foia/foia-logs
+    cadence: annual
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: medium"
+  - id: usps
+    agency_slug: united-states-postal-service
+    index_url: https://about.usps.com/who/legal/foia/foia-logs.htm
+    cadence: monthly
+    verified: false
+    notes: "research confidence: high"
+  - id: oge
+    agency_slug: office-of-government-ethics
+    index_url: https://www.oge.gov/web/OGE.nsf/Resources/FY+2025+OGE+FOIA+Log
+    cadence: annual
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: medium"
+  - id: dnfsb
+    agency_slug: defense-nuclear-facilities-safety-board
+    index_url: https://www.dnfsb.gov/foia
+    cadence: annual
+    verified: false
+    notes: "research confidence: medium"
+  - id: gsa-office-of-inspector-general-gsa-oig
+    agency_slug: general-services-administration
+    component: "Office of Inspector General (GSA OIG)"
+    index_url: https://gsaig.gov/content/freedom-information-act-and-privacy-act-requests
+    cadence: annual
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
+    notes: "research confidence: low"
+  - id: doj-fbi
+    agency_slug: department-of-justice
+    component: "Federal Bureau of Investigation (FBI)"
+    index_url: https://vault.fbi.gov/foia-log-2023
+    cadence: annual
+    verified: false
+    notes: "research confidence: medium"

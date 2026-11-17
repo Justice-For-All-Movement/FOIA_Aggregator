@@ -99,3 +99,68 @@ def fetch_json(
     if not isinstance(payload, dict):
         raise ValueError("Expected a JSON object")
     return payload
+
+
+def fetch_bytes(
+    url: str,
+    config: Config,
+    rate_limiter: HostRateLimiter,
+    *,
+    max_bytes: int = 50 * 1024 * 1024,
+    max_retries: int = 2,
+    max_retry_delay: float = 30.0,
+) -> Tuple[int, Dict[str, str], str, bytes]:
+    """Return ``(status, headers, final_url, body)`` for a 2xx/404 file response.
+
+    Same rules as :func:`fetch_text`: honest UA, robots.txt, SSRF-safe
+    redirects, per-host delay; 401/403 raise ``SourceAccessBlocked``.
+    """
+    from .scraper_core import FileTooLarge
+
+    headers = _request_headers(config)
+    headers["Accept"] = "*/*"
+    timeout = float(config.crawler.get("download_timeout_seconds",
+                                       config.crawler.get("page_timeout_seconds", 60)))
+    for attempt in range(max_retries + 1):
+        response = None
+        try:
+            response, final_url = _request_with_safe_redirects(
+                url, headers=headers, timeout=timeout, max_redirects=3,
+                rate_limiter=rate_limiter, robots=robots_policy_for(config),
+                robots_user_agent=config.crawler.get("user_agent"),
+            )
+            status = int(getattr(response, "status_code", 200))
+            response_headers = dict(getattr(response, "headers", {}) or {})
+            if status in (401, 403):
+                raise SourceAccessBlocked(f"HTTP {status} from {final_url}")
+            if status in RETRYABLE_STATUS_CODES and attempt < max_retries:
+                _retry_sleep(attempt, 2.0,
+                             retry_after=response_headers.get("Retry-After") or response_headers.get("retry-after"),
+                             max_delay_seconds=max_retry_delay)
+                continue
+            if status == 404:
+                return status, response_headers, final_url, b""
+            if not 200 <= status < 300:
+                raise requests.HTTPError(f"HTTP {status} from {final_url}")
+            declared = response_headers.get("Content-Length") or response_headers.get("content-length")
+            if declared and declared.isdigit() and int(declared) > max_bytes:
+                raise FileTooLarge(f"Content-Length {declared} exceeds {max_bytes} bytes")
+            if hasattr(response, "iter_content"):
+                chunks, size = [], 0
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if not chunk:
+                        continue
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise FileTooLarge(f"File exceeded {max_bytes} bytes")
+                    chunks.append(chunk)
+                body = b"".join(chunks)
+            else:
+                body = bytes(getattr(response, "content", b"") or b"")
+                if len(body) > max_bytes:
+                    raise FileTooLarge(f"File exceeded {max_bytes} bytes")
+            return status, response_headers, final_url, body
+        finally:
+            if response is not None:
+                _close_response(response)
+    raise requests.HTTPError(f"Retries exhausted for {url}")

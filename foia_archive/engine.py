@@ -387,7 +387,8 @@ def _run_cycle(cfg, refresh_metadata_enabled, backup_enabled, limits):
     except Exception as exc:
         journal.checkpoint("FAILED")
         journal.finish(metadata_ok=metadata_ok, state="DEGRADED", reason="checkpoint_failure")
-        logger.warning("SQLite checkpoint failed for run %s; next cycle must retry (%s)", journal.id, type(exc).__name__)
+        logger.warning("SQLite checkpoint failed for run %s; next cycle must retry (%s: %s)",
+                       journal.id, type(exc).__name__, str(exc)[:300])
 
     logger.info("Ingestion run %s finished; durable receipt retained", journal.id)
     return metadata_ok

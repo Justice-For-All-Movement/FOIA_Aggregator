@@ -814,6 +814,15 @@ def _close_response(response) -> None:
         close()
 
 
+_CONTACT_RE = re.compile(r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}")
+
+
+def crawler_contact(config: Config) -> Optional[str]:
+    """Operator contact e-mail for crawler identification (FOIA_CRAWLER_CONTACT)."""
+    value = (os.getenv("FOIA_CRAWLER_CONTACT") or config.crawler.get("contact") or "").strip()
+    return value if _CONTACT_RE.fullmatch(value) else None
+
+
 def _request_headers(
     config: Config,
     *,
@@ -842,6 +851,16 @@ def _request_headers(
                 "FOIAArchiveBot/0.1",
             )
         }
+        contact = crawler_contact(config)
+        if contact:
+            # Identify an accountable human, as SEC's fair-access policy and
+            # RFC 9110's From header expect of automated clients.
+            headers["From"] = contact
+            agent = headers["User-Agent"]
+            if agent.endswith(")"):
+                headers["User-Agent"] = f"{agent[:-1]}; {contact})"
+            else:
+                headers["User-Agent"] = f"{agent} ({contact})"
     if referer:
         headers["Referer"] = referer
     if xhr:
