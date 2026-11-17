@@ -98,3 +98,20 @@ class SubpageTests(unittest.TestCase):
         source = LogSource(source_id="s", agency_slug="a", index_url="https://foia.example.gov/foia")
         result = scrape_source(memory_conn(), source, lambda u: (200, u, pages[u]), None, dry_run=True)
         self.assertEqual(result["files_found"], 1)
+
+
+class CrawlerContactTests(unittest.TestCase):
+    def test_contact_is_added_to_identification_only_when_valid(self):
+        import os
+        from unittest.mock import patch
+        from foia_archive.scraper_core import _request_headers
+        from foia_archive.utils import load_config
+
+        cfg = load_config(str(Path(__file__).parent.parent / "config" / "settings.yaml"))
+        with patch.dict(os.environ, {"FOIA_CRAWLER_CONTACT": "foia@example.org"}):
+            headers = _request_headers(cfg)
+        self.assertEqual(headers["From"], "foia@example.org")
+        self.assertTrue(headers["User-Agent"].startswith("FOIAArchiveBot/"))
+        self.assertIn("foia@example.org", headers["User-Agent"])
+        with patch.dict(os.environ, {"FOIA_CRAWLER_CONTACT": "not an email\r\nX: y"}):
+            self.assertNotIn("From", _request_headers(cfg))
