@@ -1,7 +1,8 @@
 # Official FOIA request-log index pages scraped by `main.py published-logs`.
 # Seeded 2026-11-17 from web-search research (pages NOT loaded from this sandbox: .gov blocked).
 # verified: true only after a live run found log files on the page. confidence is the research estimate.
-# 2026-11-17 live dry run: 17 OK, 18 BLOCKED (403/robots/CAPTCHA, recorded not evaded), 14 no log links, 1 DNS failure.
+# 2026-11-17 live dry runs: 21 OK (864 log files), 18 BLOCKED (403/robots/CAPTCHA, recorded not evaded),
+# 10 no log links (likely JavaScript-rendered or non-standard pages), 1 DNS failure.
 # CIA does not publish logs (needs a log request). Agencies with no published log are in Send_FOIA_Log_Requests.
 sources:
   - id: dhs-oig
@@ -16,14 +17,14 @@ sources:
     component: "Privacy Office / Headquarters (HQ)"
     index_url: https://www.dhs.gov/foia-library
     cadence: annual
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91, widened link matching) found log files
     notes: "research confidence: medium"
   - id: dhs-cbp
     agency_slug: department-of-homeland-security
     component: "U.S. Customs and Border Protection (CBP)"
     index_url: https://www.cbp.gov/documents-library/foia-record
     cadence: monthly
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91, widened link matching) found log files
     notes: "research confidence: high"
   - id: dhs-ice
     agency_slug: department-of-homeland-security
@@ -86,7 +87,7 @@ sources:
     agency_slug: consumer-financial-protection-bureau
     index_url: https://www.consumerfinance.gov/foia-requests/foia-electronic-reading-room/?categories=log
     cadence: annual
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91, widened link matching) found log files
     notes: "research confidence: high"
   - id: nasa-headquarters
     agency_slug: national-aeronautics-and-space-administration
@@ -232,7 +233,7 @@ sources:
     component: "Office of Information Policy (OIP)"
     index_url: https://www.justice.gov/oip/available-documents-oip
     cadence: monthly
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91, widened link matching) found log files
     notes: "research confidence: high"
   - id: doj-eoir
     agency_slug: department-of-justice
