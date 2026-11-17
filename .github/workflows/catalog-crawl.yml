@@ -125,19 +125,20 @@ jobs:
           curl -fsSL -o previous-manifest.json \
             "https://github.com/${GITHUB_REPOSITORY}/releases/download/catalog-snapshot/latest.json" \
             || rm -f previous-manifest.json
+          # Restore both sources and continue from the fresher one: a stale object-storage
+          # checkpoint (e.g. while checkpoint uploads fail) must not replace newer published work.
           if [ "$FOIA_STORAGE_BACKEND" = "s3" ]; then
-            python main.py bootstrap-db --destination "$FOIA_DB_PATH" || true
+            python main.py bootstrap-db --destination data/restore-checkpoint.db || true
           fi
-          if [ ! -s "$FOIA_DB_PATH" ]; then
-            set +e
-            python main.py bootstrap-github-snapshot --repo "$GITHUB_REPOSITORY" --destination "$FOIA_DB_PATH"
-            code=$?
-            set -e
-            if [ "$code" = "1" ]; then
-              echo "::error::Published snapshot exists but could not be verified; refusing to start from empty."
-              exit 1
-            fi
+          set +e
+          python main.py bootstrap-github-snapshot --repo "$GITHUB_REPOSITORY" --destination data/restore-snapshot.db
+          code=$?
+          set -e
+          if [ "$code" = "1" ]; then
+            echo "::error::Published snapshot exists but could not be verified; refusing to start from empty."
+            exit 1
           fi
+          python scripts/pick_newest_catalog.py "$FOIA_DB_PATH" data/restore-checkpoint.db data/restore-snapshot.db || true
           if [ -s "$FOIA_DB_PATH" ]; then echo "Continuing from the previous catalog."; else echo "First run: building the baseline catalog."; fi
 
       - name: Crawl every publication source
