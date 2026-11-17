@@ -1,0 +1,219 @@
+name: Showcase archive (owner only)
+
+# Replaces the stored original files with a diverse, budget-capped showcase:
+# round-robin across agencies (civil-liberties tier first; documents tied to a
+# logged closed request first). Catalog rows, extracted text and SHA-256 of
+# every record are KEPT; only original files outside the selection are
+# permanently deleted from object storage. Manual dispatch only, and nothing
+# is deleted unless the typed confirmation matches exactly.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type exactly: REPLACE ARCHIVE WITH SHOWCASE (anything else = dry run)'
+        required: false
+        default: ""
+      budget_gb:
+        description: "Bytes of originals to keep, in GB (free tier is 10 GB; leave room for new releases)"
+        required: false
+        default: "8.0"
+      per_agency_max:
+        description: "Optional cap on documents per agency (empty = spread the budget evenly)"
+        required: false
+        default: ""
+
+concurrency:
+  # Shared with every other corpus writer: never two writers at once.
+  group: foia-b2-single-writer
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  showcase:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 330
+    env:
+      PYTHONPATH: .
+      GH_TOKEN: ${{ github.token }}
+      FOIA_DB_PATH: data/foia_archive.db
+      FOIA_FILES_DIR: data/files
+      FOIA_CRAWLER_DRY_RUN: "false"
+      FOIA_SOURCE_LIMIT: "10000"
+      FOIA_MAX_PAGES_PER_SOURCE: "150"
+      FOIA_MAX_DEPTH: "3"
+      FOIA_MAX_DISCOVERED_DOCS_PER_SOURCE: "10000"
+      FOIA_MAX_HEAD_PROBES_PER_SOURCE: "3000"
+      FOIA_PARALLEL_HOSTS: "16"
+      FOIA_MAX_CYCLE_SECONDS: "15000"
+      FOIA_RUN_DOWNLOAD_BUDGET_BYTES: "4000000000"
+      FOIA_WAYBACK_ENABLED: ${{ vars.FOIA_WAYBACK_ENABLED || 'false' }}
+      IA_S3_ACCESS_KEY: ${{ secrets.IA_S3_ACCESS_KEY }}
+      IA_S3_SECRET_KEY: ${{ secrets.IA_S3_SECRET_KEY }}
+      FOIA_ORIGINALS_BUDGET_BYTES: ${{ vars.FOIA_ORIGINALS_BUDGET_BYTES }}
+      # S3-compatible object storage (Backblaze B2, Cloudflare R2, Oracle).
+      FOIA_S3_ENDPOINT: ${{ secrets.FOIA_S3_ENDPOINT }}
+      FOIA_S3_BUCKET: ${{ secrets.FOIA_S3_BUCKET }}
+      FOIA_S3_REGION: ${{ secrets.FOIA_S3_REGION }}
+      FOIA_S3_ACCESS_KEY_ID: ${{ secrets.FOIA_S3_ACCESS_KEY_ID }}
+      FOIA_S3_SECRET_ACCESS_KEY: ${{ secrets.FOIA_S3_SECRET_ACCESS_KEY }}
+      B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+      B2_BUCKET: ${{ secrets.B2_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install extraction tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y antiword catdoc tesseract-ocr
+
+      - run: pip install -r requirements.txt
+
+      - name: Resolve FOIA.gov API key
+        env:
+          REPO_FOIA_API_KEY: ${{ secrets.FOIA_API_KEY }}
+        run: |
+          key="${REPO_FOIA_API_KEY:-$(python scripts/resolve_foia_api_key.py)}"
+          echo "::add-mask::$key"
+          echo "FOIA_API_KEY=$key" >> "$GITHUB_ENV"
+
+      - name: Select storage mode
+        run: |
+          if [ -n "${FOIA_S3_ACCESS_KEY_ID:-$B2_KEY_ID}" ] && [ -n "${FOIA_S3_SECRET_ACCESS_KEY:-$B2_APPLICATION_KEY}" ]; then
+            # Backblaze rejects uploads over a cap by closing TLS (clients see SSLError: EOF).
+            # Ask B2 directly first; on a cap or permission problem crawl metadata-only
+            # instead of failing thousands of uploads.
+            set +e
+            if [ -z "$FOIA_S3_ENDPOINT" ] || [[ "$FOIA_S3_ENDPOINT" == *backblazeb2.com* ]]; then
+              python main.py b2-diagnose --write-probe | tee b2-diagnosis.json
+              code=${PIPESTATUS[0]}
+            else
+              code=0
+            fi
+            set -e
+            if [ "$code" = "0" ]; then
+              echo "FOIA_STORAGE_BACKEND=s3" >> "$GITHUB_ENV"
+              echo "Storage: S3-compatible object storage (originals within budget)"
+            else
+              echo "FOIA_STORAGE_BACKEND=none" >> "$GITHUB_ENV"
+              echo "::warning::Object storage is not writable (see b2-diagnosis.json; exit $code). Crawling metadata + text only."
+            fi
+          else
+            echo "FOIA_STORAGE_BACKEND=none" >> "$GITHUB_ENV"
+            echo "Storage: none (metadata + extracted text + SHA-256; originals stay at the source)"
+          fi
+
+      - name: Restore previous catalog (single writer continues from it)
+        run: |
+          mkdir -p data
+          curl -fsSL -o previous-manifest.json \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/catalog-snapshot/latest.json" \
+            || rm -f previous-manifest.json
+          # Restore both sources and continue from the fresher one: a stale object-storage
+          # checkpoint (e.g. while checkpoint uploads fail) must not replace newer published work.
+          if [ "$FOIA_STORAGE_BACKEND" = "s3" ]; then
+            python main.py bootstrap-db --destination data/restore-checkpoint.db || true
+          fi
+          set +e
+          python main.py bootstrap-github-snapshot --repo "$GITHUB_REPOSITORY" --destination data/restore-snapshot.db
+          code=$?
+          set -e
+          if [ "$code" = "1" ]; then
+            echo "::error::Published snapshot exists but could not be verified; refusing to start from empty."
+            exit 1
+          fi
+          python scripts/pick_newest_catalog.py "$FOIA_DB_PATH" data/restore-checkpoint.db data/restore-snapshot.db || true
+          if [ -s "$FOIA_DB_PATH" ]; then echo "Continuing from the previous catalog."; else echo "First run: building the baseline catalog."; fi
+
+      - name: Require object storage
+        run: |
+          if [ "$FOIA_STORAGE_BACKEND" != "s3" ]; then
+            echo "::error::Object storage is not configured or not writable (see b2-diagnosis.json); nothing to do."
+            exit 1
+          fi
+
+      - name: Plan the showcase selection
+        env:
+          IN_BUDGET: ${{ inputs.budget_gb }}
+          IN_PER_AGENCY: ${{ inputs.per_agency_max }}
+        run: |
+          set -euo pipefail
+          [[ "$IN_BUDGET" =~ ^[0-9]{1,4}(\.[0-9]{1,3})?$ ]] || { echo "budget_gb must be a number"; exit 1; }
+          extra=()
+          if [ -n "$IN_PER_AGENCY" ]; then
+            [[ "$IN_PER_AGENCY" =~ ^[0-9]{1,5}$ ]] || { echo "per_agency_max must be an integer"; exit 1; }
+            extra+=(--per-agency-max "$IN_PER_AGENCY")
+          fi
+          python main.py build-closed-requests --no-full-text > /dev/null || true
+          python main.py plan-showcase --budget-gb "$IN_BUDGET" "${extra[@]}" | tee showcase-plan.json
+
+      - name: Apply (deletes originals outside the selection only with the exact phrase)
+        env:
+          IN_CONFIRM: ${{ inputs.confirm }}
+          IN_BUDGET: ${{ inputs.budget_gb }}
+        run: |
+          set -euo pipefail
+          python main.py apply-showcase --confirm "$IN_CONFIRM" --budget-gb "$IN_BUDGET" | tee showcase-result.json
+
+      - name: Build verified snapshot
+        if: inputs.confirm == 'REPLACE ARCHIVE WITH SHOWCASE'
+        run: |
+          prev=()
+          if [ -s previous-manifest.json ]; then prev=(--previous-manifest previous-manifest.json); fi
+          python main.py build-catalog-snapshot snapshot-out "${prev[@]}" | tee snapshot-manifest.json
+
+      - name: Publish snapshot release asset (keep newest 3)
+        if: inputs.confirm == 'REPLACE ARCHIVE WITH SHOWCASE'
+        run: |
+          set -euo pipefail
+          if ! gh release view catalog-snapshot >/dev/null 2>&1; then
+            gh release create catalog-snapshot --latest=false --title "Catalog snapshot (automated)" \
+              --notes "Public FOIA catalog snapshots (record metadata, extracted text, SHA-256) published by the Catalog crawl workflow. The web app installs latest.json's asset at startup."
+          fi
+          gh release upload catalog-snapshot snapshot-out/foia-catalog-*.db.gz
+          gh release upload catalog-snapshot snapshot-out/latest.json --clobber
+          gh release view catalog-snapshot --json assets --jq '.assets[].name' \
+            | python main.py snapshot-prune-plan --keep 3 \
+            | while read -r name; do gh release delete-asset catalog-snapshot "$name" -y; done
+
+      - name: Run summary
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          from pathlib import Path
+          print("## Showcase archive")
+          print(f"- Storage mode: **{os.environ.get('FOIA_STORAGE_BACKEND')}**")
+          path = Path("snapshot-manifest.json")
+          if path.is_file() and path.read_text().strip().startswith("{"):
+              m = json.loads(path.read_text())
+              print(f"- Snapshot: `{m['asset']}` ({m['bytes']:,} bytes compressed, {m['sqlite_bytes']:,} bytes SQLite)")
+              for key, value in sorted(m["counts"].items()):
+                  print(f"- {key.replace('_', ' ')}: **{value:,}**")
+          else:
+              print("- No snapshot was published.")
+          for name in ("showcase-plan.json", "showcase-result.json"):
+              p = Path(name)
+              if p.is_file():
+                  print(f"### {name}\n```\n{p.read_text()[:4000]}\n```")
+          diag = Path("b2-diagnosis.json")
+          if diag.is_file() and diag.read_text().strip().startswith("{"):
+              print(f"- B2 diagnosis verdict: **{json.loads(diag.read_text()).get('verdict')}**")
+          cov = Path("release-coverage.json")
+          if cov.is_file() and cov.read_text().strip().startswith("{"):
+              t = json.loads(cov.read_text()).get("totals") or {}
+              print(f"- Closed requests in logs: **{t.get('closed', 0):,}**; released (denominator): "
+                    f"**{t.get('released', 0):,}**; held: **{t.get('held', 0):,}**; "
+                    f"elsewhere only: {t.get('elsewhere_only', 0):,}; gaps: {t.get('gaps', 0):,}")
+          pls = Path("published-logs-summary.json")
+          if pls.is_file():
+              s = json.loads(pls.read_text())
+              print(f"- Published log sources: {s['sources']} ({s['states']}); log files ingested: {s['files_ingested']}")
+          PY

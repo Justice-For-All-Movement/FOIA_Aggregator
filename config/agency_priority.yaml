@@ -1,0 +1,19 @@
+# Civil-liberties priority (owner, 2026-11-17): agencies most likely to affect Americans'
+# civil rights first. Matched as regexes against agency slug + name. Unlisted = tier 3.
+# Used to order the showcase archive and to rank work; every agency is still covered.
+tier1:
+  - {match: "central-intelligence", why: "CIA: foreign and domestic intelligence; publishes no FOIA log"}
+  - {match: "national-security-agency", why: "NSA: signals intelligence, bulk collection"}
+  - {match: "department-of-justice", why: "FBI, DEA, ATF, BOP, USMS, Civil Rights and National Security Divisions"}
+  - {match: "homeland-security", why: "ICE, CBP, USCIS, TSA, Intelligence & Analysis"}
+  - {match: "director-of-national-intelligence", why: "ODNI: intelligence community oversight"}
+  - {match: "department-of-defense|defense-intelligence|national-reconnaissance|geospatial", why: "domestic military/intelligence activity"}
+tier2:
+  - {match: "department-of-state", why: "passports, visas, watchlists"}
+  - {match: "treasury|internal-revenue", why: "IRS-CI, FinCEN financial surveillance"}
+  - {match: "postal", why: "Postal Inspection Service, mail covers"}
+  - {match: "communications-commission", why: "telecom surveillance policy"}
+  - {match: "department-of-education", why: "Office for Civil Rights"}
+  - {match: "health-and-human-services", why: "data sharing, detention health care"}
+  - {match: "social-security-administration", why: "data sharing with enforcement"}
+  - {match: "civil-rights|equal-employment", why: "civil-rights enforcement records"}
