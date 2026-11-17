@@ -85,3 +85,16 @@ class RegistryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SubpageTests(unittest.TestCase):
+    def test_follows_one_level_of_log_pages(self):
+        from foia_archive.published_logs import find_log_pages
+        index = '<a href="/foia/requests-closed-2026">Requests closed in 2026</a><a href="https://x.org/log">x</a>'
+        sub = '<a href="/media/1/dl">Requests Closed by OIP October 2026</a>'
+        self.assertEqual(find_log_pages(index, "https://foia.example.gov/foia"),
+                         ["https://foia.example.gov/foia/requests-closed-2026"])
+        pages = {"https://foia.example.gov/foia": index, "https://foia.example.gov/foia/requests-closed-2026": sub}
+        source = LogSource(source_id="s", agency_slug="a", index_url="https://foia.example.gov/foia")
+        result = scrape_source(memory_conn(), source, lambda u: (200, u, pages[u]), None, dry_run=True)
+        self.assertEqual(result["files_found"], 1)

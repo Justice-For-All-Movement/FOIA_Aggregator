@@ -1,6 +1,7 @@
 # Official FOIA request-log index pages scraped by `main.py published-logs`.
 # Seeded 2026-11-17 from web-search research (pages NOT loaded from this sandbox: .gov blocked).
 # verified: true only after a live run found log files on the page. confidence is the research estimate.
+# 2026-11-17 live dry run: 17 OK, 18 BLOCKED (403/robots/CAPTCHA, recorded not evaded), 14 no log links, 1 DNS failure.
 # CIA does not publish logs (needs a log request). Agencies with no published log are in Send_FOIA_Log_Requests.
 sources:
   - id: dhs-oig
@@ -8,7 +9,7 @@ sources:
     component: "Office of Inspector General (OIG)"
     index_url: https://oig.dhs.gov/foia/reading-room
     cadence: quarterly
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: high"
   - id: dhs-hq
     agency_slug: department-of-homeland-security
@@ -36,7 +37,7 @@ sources:
     component: "Transportation Security Administration (TSA)"
     index_url: https://www.tsa.gov/foia/readingroom
     cadence: quarterly
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: low"
   - id: dhs-uscg
     agency_slug: department-of-homeland-security
@@ -55,7 +56,7 @@ sources:
     agency_slug: national-archives-and-records-administration
     index_url: https://www.archives.gov/foia/logs.html
     cadence: irregular
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: medium"
   - id: nrc
     agency_slug: nuclear-regulatory-commission
@@ -73,7 +74,7 @@ sources:
     agency_slug: federal-energy-regulatory-commission
     index_url: https://www.ferc.gov/enforcement-legal/foia/frequently-requested-processed-records
     cadence: annual
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: high"
   - id: fdic
     agency_slug: federal-deposit-insurance-corporation
@@ -92,14 +93,14 @@ sources:
     component: "Headquarters"
     index_url: https://www.nasa.gov/foia/nasa-e-libraries/headquarters-foia-library/
     cadence: quarterly
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: medium"
   - id: dot-faa
     agency_slug: department-of-transportation
     component: "Federal Aviation Administration (FAA)"
     index_url: https://www.faa.gov/foia/electronic_reading_room/logs
     cadence: semiannual
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: medium"
   - id: dot-phmsa
     agency_slug: department-of-transportation
@@ -140,28 +141,28 @@ sources:
     agency_slug: environmental-protection-agency
     index_url: https://www.epa.gov/foia/historic-foia-logs
     cadence: quarterly
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: high"
   - id: ustreas-irs
     agency_slug: department-of-the-treasury
     component: "Internal Revenue Service (IRS)"
     index_url: https://www.irs.gov/privacy-disclosure/irs-foia-logs
     cadence: quarterly
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: high"
   - id: ustreas-do
     agency_slug: department-of-the-treasury
     component: "Departmental Offices (DO)"
     index_url: https://home.treasury.gov/footer/freedom-of-information-act/electronic-read-room/other-frequently-requested-foia-records
     cadence: quarterly
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: high"
   - id: ustreas-bep
     agency_slug: department-of-the-treasury
     component: "Bureau of Engraving and Printing (BEP)"
     index_url: https://www.bep.gov/footer/foia/foia-logs
     cadence: irregular
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: low"
   - id: usda-aphis
     agency_slug: department-of-agriculture
@@ -196,14 +197,14 @@ sources:
     component: "Food and Drug Administration (FDA)"
     index_url: https://www.fda.gov/regulatory-information/freedom-information/fda-foia-logs
     cadence: monthly
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: high"
   - id: hhs-nih
     agency_slug: department-of-health-and-human-services
     component: "National Institutes of Health (NIH)"
     index_url: https://www.nih.gov/institutes-nih/nih-office-director/office-communications-public-liaison/freedom-information-act-office/nih-foia-library/nih-foia-log
     cadence: annual
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: high"
   - id: hhs-cms
     agency_slug: department-of-health-and-human-services
@@ -238,7 +239,7 @@ sources:
     component: "Executive Office for Immigration Review (EOIR)"
     index_url: https://www.justice.gov/eoir/foia-library-0
     cadence: quarterly
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: high"
   - id: doj-civil-division
     agency_slug: department-of-justice
@@ -286,7 +287,7 @@ sources:
     agency_slug: office-of-the-director-of-national-intelligence
     index_url: https://www.dni.gov/index.php/foia
     cadence: monthly
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: medium"
   - id: dos
     agency_slug: department-of-state
@@ -304,7 +305,7 @@ sources:
     agency_slug: equal-employment-opportunity-commission
     index_url: https://www.eeoc.gov/foia/foia-logs
     cadence: annual
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: medium"
   - id: usps
     agency_slug: united-states-postal-service
@@ -316,7 +317,7 @@ sources:
     agency_slug: office-of-government-ethics
     index_url: https://www.oge.gov/web/OGE.nsf/Resources/FY+2025+OGE+FOIA+Log
     cadence: annual
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: medium"
   - id: dnfsb
     agency_slug: defense-nuclear-facilities-safety-board
@@ -329,7 +330,7 @@ sources:
     component: "Office of Inspector General (GSA OIG)"
     index_url: https://gsaig.gov/content/freedom-information-act-and-privacy-act-requests
     cadence: annual
-    verified: false
+    verified: true  # live dry run 2026-11-17 (PR #91) found log files
     notes: "research confidence: low"
   - id: doj-fbi
     agency_slug: department-of-justice

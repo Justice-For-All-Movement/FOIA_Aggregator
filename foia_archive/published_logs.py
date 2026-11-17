@@ -26,7 +26,9 @@ import yaml
 from bs4 import BeautifulSoup
 
 LOG_EXTENSIONS = (".csv", ".tsv", ".xlsx", ".xls", ".pdf")
-DEFAULT_PATTERN = r"\blogs?\b|foia[-_ ]?log|request[-_ ]?log|processing[-_ ]?log"
+DEFAULT_PATTERN = (r"\blogs?\b|foia[-_ ]?log|request[-_ ]?log|processing[-_ ]?log"
+                   r"|requests?[-_ ]+(?:closed|received|processed|completed)|closed[-_ ]+requests?")
+MAX_SUBPAGES = 15
 DEFAULT_MAX_FILES = 6
 CADENCES = ("monthly", "quarterly", "semiannual", "annual", "irregular")
 
@@ -104,6 +106,25 @@ def find_log_links(html: str, base_url: str, pattern: str = DEFAULT_PATTERN) -> 
     return sorted(found.values(), key=lambda link: _recency_key(link["url"], link["text"]), reverse=True)
 
 
+def find_log_pages(html: str, base_url: str, pattern: str = DEFAULT_PATTERN) -> List[str]:
+    """Same-site HTML pages whose link text/URL looks like a log listing (one level deep)."""
+    regex = re.compile(pattern, re.IGNORECASE)
+    base = urlparse(base_url)
+    soup = BeautifulSoup(html or "", "html.parser")
+    pages: List[str] = []
+    for anchor in soup.find_all("a", href=True):
+        url = urljoin(base_url, anchor["href"].strip()).split("#", 1)[0]
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or parsed.netloc.lower() != base.netloc.lower():
+            continue
+        if parsed.path.lower().endswith(LOG_EXTENSIONS) or url.rstrip("/") == base_url.rstrip("/"):
+            continue
+        text = " ".join(anchor.get_text(" ").split())
+        if (regex.search(text) or regex.search(parsed.path)) and url not in pages:
+            pages.append(url)
+    return pages[:MAX_SUBPAGES]
+
+
 def _record_source(conn: sqlite3.Connection, source: LogSource, state: str, detail: str,
                    files_found: int, files_ingested: int) -> None:
     conn.execute(
@@ -144,7 +165,15 @@ def scrape_source(
                 continue
             if re.search(r"captcha|are you a robot|attention required", html[:20000], re.IGNORECASE):
                 raise SourceAccessBlocked(f"visitor verification on {final_url}; not evaded")
-            links.extend(find_log_links(html, final_url, source.link_pattern))
+            found = find_log_links(html, final_url, source.link_pattern)
+            if not found:
+                # Some agencies list each period on its own page (e.g. monthly pages).
+                for sub_url in find_log_pages(html, final_url, source.link_pattern):
+                    sub_status, sub_final, sub_html = fetch_page(sub_url)
+                    if sub_status == 404:
+                        continue
+                    found.extend(find_log_links(sub_html, sub_final, source.link_pattern))
+            links.extend(found)
     except SourceAccessBlocked as exc:
         result.update(state="BLOCKED", detail=str(exc))
         with conn:
