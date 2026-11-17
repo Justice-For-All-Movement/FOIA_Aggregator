@@ -273,6 +273,11 @@ def _migration_18_closed_request_master_list(conn: sqlite3.Connection) -> None:
     create_tables(conn)
 
 
+def _migration_19_showcase_selection(conn: sqlite3.Connection) -> None:
+    from .showcase import create_tables
+    create_tables(conn)
+
+
 MIGRATIONS: Tuple[
     Tuple[int, str, Callable[[sqlite3.Connection], None]],
     ...,
@@ -295,6 +300,7 @@ MIGRATIONS: Tuple[
     (16, "page-level crawl baselines and remote sizes", _migration_16_page_baselines),
     (17, "wayback machine preservation", _migration_17_wayback_preservation),
     (18, "closed-request master list and release matches", _migration_18_closed_request_master_list),
+    (19, "showcase archive selection", _migration_19_showcase_selection),
 )
 
 

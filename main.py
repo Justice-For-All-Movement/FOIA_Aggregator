@@ -485,6 +485,85 @@ def b2_diagnose_command(
         raise typer.Exit(code=6)
 
 
+@app.command("plan-showcase")
+def plan_showcase_command(
+    budget_gb: float = typer.Option(8.5, "--budget-gb", min=0.1, max=10_000),
+    max_file_mb: float = typer.Option(25, "--max-file-mb", min=0.1, max=1000),
+    per_agency_max: int | None = typer.Option(None, "--per-agency-max", min=1),
+    priorities: str = typer.Option("config/agency_priority.yaml", "--priorities"),
+    config: str = "config/settings.yaml",
+):
+    """Choose a diverse, budget-capped set of originals (round-robin across agencies). No deletions."""
+    import json
+    from foia_archive.ingestion_journal import exclusive_writer
+    from foia_archive.showcase import load_priorities, plan_showcase
+    from foia_archive.storage import get_connection, init_db
+
+    cfg = load_config(config)
+    db_path = cfg.storage.get("db_path")
+    with exclusive_writer(db_path):
+        init_db(db_path, cfg.storage.get("files_dir"))
+        conn = get_connection(db_path)
+        try:
+            plan = plan_showcase(conn, rules=load_priorities(priorities),
+                                 budget_bytes=int(budget_gb * 1e9), max_file_bytes=int(max_file_mb * 1024 * 1024),
+                                 per_agency_max=per_agency_max)
+        finally:
+            conn.close()
+    typer.echo(json.dumps(plan, indent=2, sort_keys=True))
+
+
+@app.command("apply-showcase")
+def apply_showcase_command(
+    confirm: str = typer.Option("", "--confirm", help='Type exactly: REPLACE ARCHIVE WITH SHOWCASE'),
+    budget_gb: float = typer.Option(8.5, "--budget-gb", min=0.1, max=10_000),
+    config: str = "config/settings.yaml",
+):
+    """Delete stored originals not in the showcase plan, then download the selected ones.
+
+    Catalog rows, extracted text and SHA-256 are kept for every record. Without the
+    exact confirmation phrase this only prints what would happen.
+    """
+    import json
+    from foia_archive.archive_storage import B2ArchiveStorage, get_archive_storage
+    from foia_archive.database_backup import _permanently_delete_object
+    from foia_archive.ingestion_journal import exclusive_writer
+    from foia_archive.scraper_core import HostRateLimiter, download_document
+    from foia_archive.showcase import CONFIRM_PHRASE, fill_selection, prune_to_selection, showcase_summary
+    from foia_archive.storage import get_connection, init_db
+
+    cfg = load_config(config)
+    db_path = cfg.storage.get("db_path")
+    storage = get_archive_storage(cfg)
+    if not isinstance(storage, B2ArchiveStorage):
+        typer.echo("apply-showcase needs S3-compatible object storage (FOIA_STORAGE_BACKEND=s3).")
+        raise typer.Exit(code=2)
+    with exclusive_writer(db_path):
+        init_db(db_path, cfg.storage.get("files_dir"))
+        conn = get_connection(db_path)
+        try:
+            if confirm != CONFIRM_PHRASE:
+                keep = conn.execute(
+                    """SELECT COUNT(*) FROM showcase_selection s JOIN documents d ON d.id=s.document_id
+                       WHERE d.storage_key IS NOT NULL""").fetchone()[0]
+                stored = conn.execute(
+                    "SELECT COUNT(*) FROM documents WHERE storage_backend='b2' AND storage_key IS NOT NULL"
+                ).fetchone()[0]
+                typer.echo(json.dumps({"dry_run": True, "stored_originals": stored, "would_keep": keep,
+                                       "would_delete_about": stored - keep,
+                                       "selection": showcase_summary(conn)}, indent=2, sort_keys=True))
+                typer.echo(f'Nothing changed. To apply, pass --confirm "{CONFIRM_PHRASE}".')
+                return
+            pruned = prune_to_selection(conn, storage, _permanently_delete_object, confirm=confirm)
+            limiter = HostRateLimiter(max(2.0, float(cfg.crawler.get("per_host_delay_seconds", 0.5))))
+            filled = fill_selection(conn, cfg, storage, budget_bytes=int(budget_gb * 1e9),
+                                    download=download_document, rate_limiter=limiter,
+                                    files_dir=cfg.storage.get("files_dir"))
+        finally:
+            conn.close()
+    typer.echo(json.dumps({"pruned": pruned, "filled": filled}, indent=2, sort_keys=True))
+
+
 @app.command("export-catalog")
 def export_catalog(
     output_dir: str = typer.Argument(..., help="Directory for manifest.json and records-*.jsonl."),
