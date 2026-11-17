@@ -163,12 +163,25 @@ def _native_url(value: str, *, api: bool = False) -> str:
     return value.rstrip("/") if api else value
 
 
+def _b2_error_code(response) -> str:
+    """HTTP status and B2's documented error ``code`` (e.g. cap_exceeded); never the body text."""
+    code = ""
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            code = str(payload.get("code") or "")
+    except Exception:
+        pass
+    code = code if re.fullmatch(r"[a-z_]{1,64}", code or "") else "unknown"
+    return f"HTTP {response.status_code} {code}"
+
+
 def _native_json(response) -> dict:
     # raise_for_status alone accepts redirects. Redirects must never receive tokens.
     if response.status_code != 200:
         if response.status_code == 429 or response.status_code >= 500:
             raise requests.HTTPError("Transient B2 native response", response=response)
-        raise ArchiveStorageError("B2 native request rejected")
+        raise ArchiveStorageError(f"B2 native request rejected: {_b2_error_code(response)}")
     try:
         payload = response.json()
         if not isinstance(payload, dict):

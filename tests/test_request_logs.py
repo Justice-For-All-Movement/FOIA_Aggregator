@@ -83,7 +83,7 @@ class RequestLogNormalizationTests(unittest.TestCase):
     def test_pdf_logs_are_queued_as_unsupported(self):
         log = normalize_request_log(b"%PDF-1.7 fixture", source_url="https://foia.example.gov/log.pdf")
         self.assertEqual(log.rows, [])
-        self.assertEqual(log.failures[0]["reason"], "unsupported_format:pdf")
+        self.assertTrue(log.failures[0]["reason"].startswith("unsupported_format:pdf"))
 
     def test_rejects_empty_headerless_and_oversized_input(self):
         with self.assertRaises(RequestLogError):

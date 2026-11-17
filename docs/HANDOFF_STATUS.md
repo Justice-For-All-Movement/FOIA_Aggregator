@@ -23,6 +23,35 @@ Merged (squash `d7435ee`; every check run on head `757f32d` concluded success).
 - Not yet done: first Catalog crawl run (owner dispatch/variable; agents cannot dispatch),
   Render restart to load the snapshot, live S3/R2/Oracle and Wayback acceptance.
 
+## November 17, 2026: closed-request master list, published logs, B2 diagnosis
+
+**Code complete with fixtures; not data-synchronized. Live log URLs are unverified until the PR live probe runs.** See [RELEASE_COVERAGE.md](RELEASE_COVERAGE.md).
+
+- Verified live state (REST API, 2026-11-17):
+  - Catalog crawl run 43983891639 succeeded.
+  - Snapshot `foia-catalog-20261117T033827Z.db.gz`:
+    - 28,424 documents and 368 reading rooms;
+    - 9,326 dated documents and 592 text records;
+    - 668 originals in B2.
+  - Window counts (since 2026-11-10): 81 in window, 18,289 undated, 8,030 out of window, 3,302 admitted.
+  - 163 reading-room fetch failures in that run:
+    - 79 HTTP 403 and 48 HTTP 404;
+    - 15 DNS failures;
+    - 15 robots.txt (10 robots.txt unreachable, 5 disallowed);
+    - 2 CAPTCHA.
+  - Render `foia-aggregator` has autoDeploy **on** and is live on `c41a097`. It has no storage keys.
+- **B2 finding:** no document upload succeeded in that run. In the snapshot:
+  - 996 uploads failed with "SSL validation failed ... EOF occurred in violation of protocol";
+  - 680 failed with "Connection was closed";
+  - 2,059 HeadObject calls returned 403 on 2026-10-06;
+  - all 668 stored originals date from Oct 5–6.
+
+  The bucket (`FOIA-Search`) is auto-discovered from the bucket-scoped key, so an empty `B2_BUCKET` is not the cause. The pattern fits B2 rejecting requests early, for example a storage or daily transaction cap. B2's S3 endpoint closes TLS in that case, so clients see SSLError.
+  - New `main.py b2-diagnose [--write-probe]` asks the native API and reports B2's error code (for example `cap_exceeded`) without secrets.
+  - The crawl workflow now runs it first and falls back to metadata-only storage instead of failing thousands of uploads.
+  - Native-upload rejections now include the B2 code, and the checkpoint failure log includes the message.
+- New: published-log scraper and registry (50 sources), PDF/XLS log parsing, `pages_released`, master list (migration 18), reading-room/MuckRock/DocumentCloud matching, `/release-coverage`, and the gap export `foia-release-gaps/1`.
+
 ## Authoritative documents
 - [Full development plan](DEVELOPMENT_PLAN.md): 10 approved operational FA units plus 14 added FC broad-coverage deliverables.
 - [Agent operating rules](../AGENTS.md).

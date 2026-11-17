@@ -1,0 +1,10 @@
+Synthetic closed-request log for tests (not real requests)
+Request Number,Date Received,Date Closed,Subject,Final Disposition,Pages Released,Request Type
+EX-2026-000101,2026-05-02,2026-07-03,Contracts for detention facility medical care,Granted in Full,"1,204",Third Party
+EX-2026-000102,2026-05-03,2026-07-10,Emails about surveillance procurement,Partial Grant/Partial Denial,88,Third Party
+EX-2026-000103,2026-05-04,2026-07-11,My A-file and immigration records,Partial Grant,40,
+EX-2026-000104,2026-05-05,2026-08-01,Records of facial recognition policy,Full Denial Based on Exemptions,0,Third Party
+EX-2026-000105,2026-05-06,2026-08-15,Body camera policy memoranda,Partial Grant,12,Third Party
+EX-2026-000106,2026-05-07,2026-08-20,Records about myself,Full Grant,3,First Party
+EX-2026-000107,2026-05-08,,Still open request,In Process,,Third Party
+EX-2026-000108,2026-05-09,2026-09-02,Fusion center contracts,No Records,0,Third Party

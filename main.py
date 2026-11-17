@@ -313,6 +313,178 @@ def ingest_request_log(
                f"{len(log.rows)} rows, {len(log.failures)} queued failures")
 
 
+@app.command("published-logs")
+def published_logs_command(
+    registry: str = typer.Option("config/published_logs.yaml", "--registry"),
+    source: list[str] = typer.Option([], "--source", help="Only these source ids (repeatable)."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="List log links only; no downloads or writes."),
+    max_files: int | None = typer.Option(None, "--max-files", min=0, max=200),
+    summary_json: str | None = typer.Option(None, "--summary-json"),
+    config: str = "config/settings.yaml",
+):
+    """Scrape FOIA request logs agencies already publish (robots, honest UA, BLOCKED never evaded)."""
+    import json
+    import sqlite3
+    from pathlib import Path
+    from foia_archive.ingestion_journal import exclusive_writer
+    from foia_archive.polite_http import fetch_bytes, fetch_text
+    from foia_archive.published_logs import load_registry, scrape_source
+    from foia_archive.scraper_core import HostRateLimiter
+    from foia_archive.storage import get_connection, init_db
+
+    cfg = load_config(config)
+    sources = [s for s in load_registry(registry) if not source or s.source_id in source]
+    limiter = HostRateLimiter(max(2.0, float(cfg.crawler.get("per_host_delay_seconds", 0.5))))
+
+    def page(url):
+        status, _, final_url, text = fetch_text(url, cfg, limiter, accept="text/html,*/*", max_bytes=5 * 1024 * 1024)
+        return status, final_url, text
+
+    def file(url):
+        status, _, final_url, body = fetch_bytes(url, cfg, limiter)
+        return status, final_url, body
+
+    def run(conn):
+        return [scrape_source(conn, s, page, file, dry_run=dry_run, max_files=max_files) for s in sources]
+
+    if dry_run:
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        results = run(conn)
+    else:
+        db_path = cfg.storage.get("db_path")
+        with exclusive_writer(db_path):
+            init_db(db_path, cfg.storage.get("files_dir"))
+            conn = get_connection(db_path)
+            try:
+                results = run(conn)
+            finally:
+                conn.close()
+    states = {}
+    for r in results:
+        states[r["state"]] = states.get(r["state"], 0) + 1
+        typer.echo(f"{r['state']:>12}  {r['source_id']:<28} {r.get('detail', '')}")
+    summary = {"sources": len(results), "states": states,
+               "files_found": sum(r.get("files_found", 0) for r in results),
+               "files_ingested": sum(r.get("files_ingested", 0) for r in results), "results": results}
+    if summary_json:
+        Path(summary_json).write_text(json.dumps(summary, indent=2, sort_keys=True))
+    typer.echo(json.dumps({k: v for k, v in summary.items() if k != "results"}, sort_keys=True))
+
+
+@app.command("build-closed-requests")
+def build_closed_requests_command(
+    full_text: bool = typer.Option(True, "--full-text/--no-full-text"),
+    config: str = "config/settings.yaml",
+):
+    """Rebuild the closed-request master list and match it to this archive and MuckRock (no network)."""
+    import json
+    from foia_archive.closed_requests import build_master_list, match_muckrock, match_reading_room
+    from foia_archive.ingestion_journal import exclusive_writer
+    from foia_archive.storage import get_connection, init_db
+
+    cfg = load_config(config)
+    db_path = cfg.storage.get("db_path")
+    with exclusive_writer(db_path):
+        init_db(db_path, cfg.storage.get("files_dir"))
+        conn = get_connection(db_path)
+        try:
+            result = {"master_list": build_master_list(conn),
+                      "reading_room": match_reading_room(conn, use_full_text=full_text),
+                      "muckrock": match_muckrock(conn)}
+        finally:
+            conn.close()
+    typer.echo(json.dumps(result, indent=2, sort_keys=True))
+
+
+@app.command("match-documentcloud")
+def match_documentcloud_command(
+    max_queries: int = typer.Option(200, "--max-queries", min=0, max=5000),
+    config: str = "config/settings.yaml",
+):
+    """Search public DocumentCloud for unmatched released requests (bounded, polite)."""
+    import json
+    from foia_archive.closed_requests import match_documentcloud
+    from foia_archive.ingestion_journal import exclusive_writer
+    from foia_archive.polite_http import fetch_json
+    from foia_archive.scraper_core import HostRateLimiter
+    from foia_archive.storage import get_connection, init_db
+
+    cfg = load_config(config)
+    limiter = HostRateLimiter(max(2.0, float(cfg.crawler.get("per_host_delay_seconds", 0.5))))
+    db_path = cfg.storage.get("db_path")
+    with exclusive_writer(db_path):
+        init_db(db_path, cfg.storage.get("files_dir"))
+        conn = get_connection(db_path)
+        try:
+            result = match_documentcloud(conn, lambda url: fetch_json(url, cfg, limiter),
+                                         max_queries=max_queries)
+        finally:
+            conn.close()
+    typer.echo(json.dumps(result, sort_keys=True))
+
+
+@app.command("release-coverage")
+def release_coverage_command(
+    granularity: str = typer.Option("month", "--granularity", help="month, quarter or year"),
+    since: str | None = typer.Option(None, "--since"),
+    until: str | None = typer.Option(None, "--until"),
+    agency: str | None = typer.Option(None, "--agency"),
+    config: str = "config/settings.yaml",
+):
+    """Released records vs records held, per agency and period (read-only)."""
+    import json
+    from foia_archive.closed_requests import release_coverage
+
+    conn = _read_only_connection(config)
+    try:
+        report = release_coverage(conn, granularity=granularity, since=since, until=until, agency=agency)
+    finally:
+        conn.close()
+    typer.echo(json.dumps(report, indent=2, sort_keys=True))
+
+
+@app.command("export-release-gaps")
+def export_release_gaps_command(
+    output_dir: str = typer.Argument(..., help="Directory for manifest.json and gaps.jsonl."),
+    since: str | None = typer.Option(None, "--since"),
+    until: str | None = typer.Option(None, "--until"),
+    agency: str | None = typer.Option(None, "--agency"),
+    config: str = "config/settings.yaml",
+):
+    """Write foia-release-gaps/1 for Send_FOIA_Log_Requests follow-up drafts (read-only)."""
+    import json
+    from foia_archive.closed_requests import write_gap_export
+    from foia_archive.producer import producer_info
+
+    conn = _read_only_connection(config)
+    try:
+        manifest = write_gap_export(conn, output_dir, since=since, until=until, agency=agency,
+                                    producer_commit=producer_info().get("commit"))
+    finally:
+        conn.close()
+    typer.echo(json.dumps(manifest, sort_keys=True))
+
+
+@app.command("b2-diagnose")
+def b2_diagnose_command(
+    write_probe: bool = typer.Option(False, "--write-probe", help="Upload and delete a 16-byte probe object."),
+):
+    """Report why B2 uploads fail (B2 error codes such as cap_exceeded; never secrets).
+
+    Exit 0 = writable or authorized, 5 = cap exceeded, 6 = other problem, 0 without credentials.
+    """
+    import json
+    from foia_archive.b2_diagnose import diagnose
+
+    report = diagnose(write_probe=write_probe)
+    typer.echo(json.dumps(report, indent=2, sort_keys=True, default=str))
+    if report["verdict"] == "cap_exceeded":
+        raise typer.Exit(code=5)
+    if report["verdict"] not in ("writable", "authorized_no_write_probe", "no_credentials"):
+        raise typer.Exit(code=6)
+
+
 @app.command("export-catalog")
 def export_catalog(
     output_dir: str = typer.Argument(..., help="Directory for manifest.json and records-*.jsonl."),

@@ -49,6 +49,40 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  published-logs:
+    # Dry run: lists log files on each registered agency log page (robots.txt,
+    # honest UA, 2 s/host). No downloads, no writes, never fails the PR.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Published FOIA log pages (informational)
+        run: |
+          python main.py published-logs --dry-run --max-files 5 --summary-json published-logs-summary.json || true
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY" || true
+          import json
+          s = json.load(open("published-logs-summary.json"))
+          print("## Published FOIA log pages (dry run)")
+          print(f"- Sources: {s['sources']}; states: {s['states']}; log files found: {s['files_found']}")
+          print("| Source | State | Files | Detail |\n|---|---|---|---|")
+          for r in s["results"]:
+              print(f"| {r['source_id']} | {r['state']} | {r.get('files_found', 0)} | {str(r.get('detail', ''))[:120]} |")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: published-logs-summary
+          path: published-logs-summary.json
+          if-no-files-found: warn
+          retention-days: 14
+
   aggregate:
     needs: probe
     if: always()
