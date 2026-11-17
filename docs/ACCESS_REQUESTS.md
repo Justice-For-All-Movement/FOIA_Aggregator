@@ -65,9 +65,10 @@ www.cia.gov, energy.gov, www.health.mil, www.socom.mil, www.ustranscom.mil, www3
 www.fsa.usda.gov, www.fpacbc.usda.gov, www.swpa.gov, www.wipp.energy.gov.
 
 ## 4. Every agency whose log stays unreachable gets a log request
-Send_FOIA_Log_Requests `plan-logs` treats an agency as publishing logs only if its log page was
-actually read (`state` OK in `published_log_sources`). Every blocked agency therefore gets a
-periodic FOIA request for its closed-request log, the same as CIA, once sending is approved.
+Send_FOIA_Log_Requests `plan-logs --published-logs <file>` skips only the agencies listed in that
+file. List only sources whose state is `OK` in `published_log_sources`, so every blocked agency
+gets a periodic FOIA request for its closed-request log, the same as CIA. To do: an export that
+maps aggregator agency slugs to FOIA.gov abbreviations, so this file is generated automatically.
 
 ## Owner decisions still open
 * **Internet Archive copies:** fetch the Wayback Machine's public copies of blocked log
